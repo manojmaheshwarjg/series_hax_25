@@ -233,7 +233,9 @@ If their last answer was vague, playfully ask for more detail.
             """
 
             chat_completion = self.client.chat.completions.create(
-                messages=[{"role": "user", "content": prompt}],
+                messages=[
+                    {"role": "system", "content": prompt}
+                ],
                 model=self.model,
                 temperature=0.0, # Low temp for logic
                 response_format={"type": "json_object"}
@@ -247,18 +249,51 @@ If their last answer was vague, playfully ask for more detail.
             # Fallback to safe default
             return {"is_vague": False, "reason": "error", "follow_up": ""}
 
-    def generate_contextual_catalyst_question(self, profile: Dict[str, Any], missing_field: str) -> str:
+    def generate_match_reasoning(self, candidate_name: str, explanation: str, component_scores: Dict[str, float]) -> str:
         """
-        Generate a highly contextual Catalyst question based on what we already know.
+        Generate a 'cute', enthusiastic, insider-style reason for the match.
         """
         try:
             prompt = f"""
-            Generate a concise, natural question to ask this user to fill in their missing profile field: '{missing_field}'.
+            Rewrite this technical match explanation into a fun, enthusiastic, insider-style recommendation.
             
-            USER PROFILE SO FAR:
-            {profile}
+            CANDIDATE: {candidate_name}
+            TECHNICAL EXPLANATION: "{explanation}"
+            SCORES: {component_scores}
             
-            MISSING FIELD: {missing_field}
+            PERSONA: 
+            - You are a well-connected friend introduced them.
+            - Use emojis (🚀, ✨, 🔥).
+            - Be specific about WHY they fit (don't just say "it's a match").
+            - Style: "Sarah is EXACTLY who you need because..." or "You and Mike are going to vibe because..."
+            - Keep it short (1-2 sentences max).
+            
+            REASONING:
+            """
+            
+            chat_completion = self.client.chat.completions.create(
+                messages=[{"role": "user", "content": prompt}],
+                model=self.model,
+                temperature=0.7,
+                max_tokens=100
+            )
+            
+            return chat_completion.choices[0].message.content.strip()
+            
+        except Exception as e:
+            logger.error(f"Error generating match reasoning: {e}")
+            return explanation  # Fallback to the technical explanation
+
+    def generate_contextual_catalyst_question(self, profile: Dict[str, Any], missing_field: str) -> str:
+        """
+        Generate a highly contextual Catalyst question based on what we already know.
+        Returns just the question string, but generates via JSON to ensure quality.
+        """
+        try:
+            system_prompt = f"""
+            You are an expert conversationalist asking a follow-up question to build a professional profile.
+            
+            TASK: Generate a concise, natural text-message style question to ask the user to fill in their missing profile field: '{missing_field}'.
             
             GUIDELINES:
             - Use the existing profile info to make it contextual! 
@@ -266,16 +301,35 @@ If their last answer was vague, playfully ask for more detail.
             - Keep it short (text message style).
             - No "Hello" or "Greetings". Just the question.
             
-            QUESTION:
+            OUTPUT FORMAT:
+            Return a JSON object with:
+            - rationale: string (why you chose this question based on profile)
+            - question: string (the actual question to ask)
+            
+            JSON ONLY. NO MARKDOWN.
+            """
+            
+            user_content = f"""
+            USER PROFILE SO FAR:
+            {profile}
+            
+            MISSING FIELD: {missing_field}
             """
             
             chat_completion = self.client.chat.completions.create(
-                messages=[{"role": "user", "content": prompt}],
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_content}
+                ],
                 model=self.model,
-                temperature=0.7
+                temperature=0.7,
+                response_format={"type": "json_object"}
             )
             
-            return chat_completion.choices[0].message.content.strip()
+            import json
+            data = json.loads(chat_completion.choices[0].message.content)
+            logger.info(f"[CATALYST-GEN] Rationale: {data.get('rationale')}")
+            return data.get('question', '').strip()
             
         except Exception as e:
             logger.error(f"Error generating catalyst question: {e}")
