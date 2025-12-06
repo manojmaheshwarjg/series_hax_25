@@ -936,7 +936,7 @@ class SeriesAIFriend:
 
                     # Offer helpful options
                     exhausted_messages = [
-                        f"I've shown you everyone I know who matches! 😅\n\n"
+                        f"I've shown you everyone I know who matches!\n\n"
                         f"You rejected {len(excluded_names)} {'person' if len(excluded_names) == 1 else 'people'} "
                         f"({', '.join(excluded_names[:3])}{', ...' if len(excluded_names) > 3 else ''}).\n\n"
                         f"Want me to:\n"
@@ -944,7 +944,7 @@ class SeriesAIFriend:
                         f"• Adjust your requirements?\n"
                         f"Just let me know!",
 
-                        f"Looks like we've gone through everyone in my network for this! 🙈\n\n"
+                        f"Looks like we've gone through everyone in my network for this!\n\n"
                         f"I showed you {len(excluded_names)} options already. "
                         f"Would you like me to go back to any of them, or should we adjust what you're looking for?"
                     ]
@@ -958,40 +958,49 @@ class SeriesAIFriend:
                     self.conversation_manager.reset_context(phone)
                     return "Hmm, I don't have anyone in my network who fits right now. But I'll keep this in mind!"
 
-            # Get best match
+            # Show multiple matches (top 3) with scores
+            num_matches = min(len(matches), 3)
+            logger.info(f"[MATCHES-FOUND] {num_matches} matches to present")
+
+            # Format response with multiple options
+            response_parts = []
+            response_parts.append(f"Found {num_matches} great {'match' if num_matches == 1 else 'matches'}!\n")
+
+            for i, match in enumerate(matches[:num_matches], 1):
+                # Get score as percentage
+                match_score = getattr(match, 'total_score', getattr(match, 'score', 0.0))
+                score_percentage = int(match_score * 100)
+
+                # Log internally (not shown to user)
+                logger.info(f"[MATCH-{i}] {match.user['name']} (score: {match_score:.2f})")
+
+                # Generate description
+                description = self.response_engine.generate_match_description(match.user)
+
+                # Add to response (simple, clean format)
+                response_parts.append(
+                    f"\n{i}. {match.user['name']} - {match.user.get('role', 'Member')}"
+                )
+                response_parts.append(f"   {description}")
+                response_parts.append(f"   Match: {score_percentage}%")
+
+            # Store TOP match in session for conversation memory (thread-safe)
             best_match = matches[0]
-            
-            # Store match in session for conversation memory (thread-safe)
             with self.session_state_lock:
                 if phone in self.session_state:
                     self.session_state[phone]['last_match'] = best_match.user
                     # Clear rejection flag now that we have a new match
                     self.session_state[phone]['rejection_just_happened'] = False
 
-            # Handle both CatalystScore (has .total_score) and MatchScore (has .score)
-            match_score = getattr(best_match, 'total_score', getattr(best_match, 'score', 0.0))
-            logger.info(f"[MATCH-FOUND] {best_match.user['name']} (score: {match_score:.2f})")
             self._save_session_state()  # Persist match
 
-            # Generate cute reasoning
-            cute_reasoning = self.response_engine.generate_match_reasoning(
-                best_match.user['name'], 
-                best_match.explanation,
-                best_match.component_scores
-            )
-            
-            # Generate natural description
-            description = self.response_engine.generate_match_description(best_match.user)
+            # Add call to action
+            if num_matches == 1:
+                response_parts.append(f"\n\nShould I connect you with {best_match.user['name']}?")
+            else:
+                response_parts.append(f"\n\nI recommend #{1} - {best_match.user['name']}. Want me to make the intro?")
 
-            # Format output
-            response = (
-                f"I found a great match! 🎉\n\n"
-                f"👤 {best_match.user['name']} - {best_match.user.get('role', 'Member')}\n"
-                f"{description}\n\n"
-                f"💡 {cute_reasoning}\n\n"
-                f"Should I make the intro?"
-            )
-            
+            response = "\n".join(response_parts)
             return response
         except Exception as e:
             logger.error(f"Matching error: {e}", exc_info=True)
