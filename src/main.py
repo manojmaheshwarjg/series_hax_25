@@ -426,7 +426,7 @@ class SeriesAIFriend:
 
                 if requirements:
                     logger.info(f"[RESET-SEARCH] Searching again with reset rejections")
-                    reset_response = self._handle_matching_request(sender, profile, requirements, chat_id)
+                    reset_response = self._handle_matching_request(sender, profile)
 
                     if reset_response:
                         reset_ack = f"Okay! Let me show you the matches again. Here's one:\n\n{reset_response}"
@@ -493,7 +493,7 @@ class SeriesAIFriend:
 
                         # Search for alternative match
                         logger.info(f"[REJECTION-SEARCH] Searching for alternative (excluding {len(excluded_names)} rejected)")
-                        alternative_response = self._handle_matching_request(sender, profile, requirements, chat_id)
+                        alternative_response = self._handle_matching_request(sender, profile)
 
                         if alternative_response:
                             # Send acknowledgment + new match
