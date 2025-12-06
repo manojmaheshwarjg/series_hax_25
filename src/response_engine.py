@@ -211,18 +211,18 @@ If their last answer was vague, playfully ask for more detail.
         """
         try:
             prompt = f"""
-            Analyze this Q&A pair. Determine if the answer is too vague, evasive, or short to be useful for a professional profile.
+            Analyze this Q&A pair. Determine if the answer is completely EMPTY of content (e.g., "idk", "stuff", "things").
             
             CONTEXT:
             Question Asked: "{question}"
             User Answer: "{answer}"
             
             CRITERIA FOR VAGUE:
-            - One word answers that aren't Yes/No (e.g. "stuff", "things")
-            - Evasive answers ("idk", "maybe")
-            - Answers that don't actually answer the specific question
-            - EXCEPTION: Short but specific answers (e.g. "Product design", "React developer", "NYC") are NOT vague.
-            - EXCEPTION: "Yes", "No", "Sure" are NOT vague.
+            - TRUE VAGUENESS: "idk", "not sure", "stuff", "whatever", "things".
+            - NOT VAGUE: "Software", "Building an app", "NYC", "Growth".
+            - NOT VAGUE: Any answer that gives even a hint of a direction.
+            
+            RULE: When in doubt, it is NOT vague. err on the side of allowing the conversation to flow.
             
             Return a JSON object with:
             - is_vague: boolean

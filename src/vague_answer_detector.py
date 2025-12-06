@@ -23,6 +23,11 @@ class VagueAnswerDetector:
         """
         Check if an answer is too vague using LLM
         """
+        # FAILPROOF: If answer is longer than 5 words, logic says it's likely not "vague" in the conversational sense.
+        # This bypasses the LLM for complex answers like "I'm designing a SaaS platform..."
+        if len(answer.split()) > 5:
+            return False
+
         if not self.response_engine:
             logger.warning("ResponseEngine not provided to VagueAnswerDetector")
             return False
