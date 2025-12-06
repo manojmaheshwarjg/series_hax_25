@@ -200,13 +200,41 @@ class SeriesAIFriend:
                 'timestamp': event.get('timestamp')
             })
 
+            # Get or create session state for this user
+            if sender not in self.session_state:
+                self.session_state[sender] = {
+                    'last_match': None,
+                    'pending_intro': None,
+                    'conversation_history': []
+                }
+
             # Phase 2: Advanced NLP Analysis
             nlp_analysis = self.nlp_engine.analyze(text)
             logger.info(f"NLP: sentiment={nlp_analysis.sentiment_label}, topics={nlp_analysis.topics}")
 
-            # Classify intent
-            intent_result = self.intent_classifier.classify(text)
+            # Build conversation history for context-aware classification
+            conversation_history = self.session_state[sender]['conversation_history']
+
+            # Classify intent with conversation context
+            intent_result = self.intent_classifier.classify(text, conversation_history)
             logger.info(f"Intent: {intent_result.intent} (confidence: {intent_result.confidence:.2f})")
+
+            # FALLBACK: Check for confirmation keywords if there's a pending match
+            # This handles cases where intent classification might miss confirmations
+            confirmation_keywords = ['yes', 'sure', 'ok', 'okay', 'please', 'connect', 'go ahead', 'sounds good', 'perfect', 'great']
+            text_lower = text.lower().strip()
+
+            if self.session_state[sender]['last_match'] and any(keyword in text_lower for keyword in confirmation_keywords) and len(text.split()) <= 5:
+                # Short message with confirmation keyword + pending match = likely confirmation
+                logger.info(f"[FALLBACK] Detected confirmation via keywords: '{text}'")
+                last_match = self.session_state[sender]['last_match']
+
+                # Add to conversation history
+                self.session_state[sender]['conversation_history'].append({"role": "user", "content": text})
+
+                # Handle double opt-in flow
+                self._handle_intro_confirmation(sender, last_match, chat_id)
+                return  # Skip normal response generation
 
             # Phase 2: Update profile using profile builder
             profile_updates = self.profile_builder.update_profile_from_message(
@@ -216,26 +244,27 @@ class SeriesAIFriend:
                 logger.info(f"Profile updates: {profile_updates}")
                 user_storage.update_profile(sender, profile)
 
-            # Get or create session state for this user
-            if sender not in self.session_state:
-                self.session_state[sender] = {
-                    'last_match': None,
-                    'pending_intro': None,
-                    'conversation_history': []
-                }
-            
             # Get conversation context
             conv_context = self.conversation_manager.get_or_create_context(sender)
-            
-            # Check if user is confirming a previous match
+
+            # Check if user is confirming a previous match (intent-based detection)
             if intent_result.intent in ['acknowledgment', 'explicit_intro_request'] and self.session_state[sender]['last_match'] and not intent_result.entities:
                 # User said "yes" or "connect me" - they want the last match!
                 last_match = self.session_state[sender]['last_match']
                 logger.info(f"[CONTEXT] User confirming intro with: {last_match['name']}")
-                
+
+                # Add to conversation history
+                self.session_state[sender]['conversation_history'].append({"role": "user", "content": text})
+
                 # Handle double opt-in flow
                 self._handle_intro_confirmation(sender, last_match, chat_id)
                 return  # Skip normal response generation
+
+            # Add user message to conversation history
+            self.session_state[sender]['conversation_history'].append({
+                "role": "user",
+                "content": text
+            })
 
             # Phase 2: Generate intelligent response
             response = self._generate_intelligent_response(
@@ -243,6 +272,16 @@ class SeriesAIFriend:
             )
 
             if response:
+                # Add bot response to conversation history
+                self.session_state[sender]['conversation_history'].append({
+                    "role": "assistant",
+                    "content": response
+                })
+
+                # Keep only last 10 messages to avoid memory bloat
+                if len(self.session_state[sender]['conversation_history']) > 10:
+                    self.session_state[sender]['conversation_history'] = self.session_state[sender]['conversation_history'][-10:]
+
                 # Phase 3: Send with human-like behavior
                 self._send_human_like_message(
                     sender, response, chat_id, nlp_analysis.complexity

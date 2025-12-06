@@ -37,9 +37,13 @@ class IntentClassifier:
         self.client = Groq(api_key=api_key)
         self.model = "llama-3.3-70b-versatile"
 
-    def classify(self, text: str) -> IntentResult:
+    def classify(self, text: str, conversation_history: List[Dict[str, str]] = None) -> IntentResult:
         """
-        Classify intent of a message using Groq
+        Classify intent of a message using Groq with conversation context
+
+        Args:
+            text: Current message text
+            conversation_history: List of recent messages [{"role": "user"/"assistant", "content": "..."}]
         """
         if not text or not text.strip():
              return IntentResult(
@@ -51,26 +55,30 @@ class IntentClassifier:
             )
 
         try:
-            # Simple, effective prompt that works reliably with Llama 3
+            # Context-aware prompt
             system_prompt = """
-            You are an intent classification system.
+            You are an intent classification system for a networking chatbot.
             Identify the user's intent and extract entities (role, technology, location, etc.).
-            
+
+            IMPORTANT: Consider the conversation history when classifying intent.
+            - If the bot just suggested a match, and user says "yes"/"sure"/"connect me"/"please" -> intent is "acknowledgment"
+            - If user is confirming an introduction request -> intent is "acknowledgment"
+
             INTENTS:
-            - explicit_intro_request
-            - implicit_need
-            - skill_share
-            - feedback_positive
-            - feedback_negative
-            - greeting
-            - question_system_capabilities
-            - question_status
-            - clarification
-            - schedule_meeting
-            - update_profile
-            - farewell
-            - acknowledgment
-            - other
+            - explicit_intro_request: User explicitly asks for an introduction
+            - implicit_need: User mentions a problem/need without explicitly asking
+            - skill_share: User shares their skills or expertise
+            - feedback_positive: User gives positive feedback
+            - feedback_negative: User gives negative feedback
+            - greeting: Initial greeting or hello
+            - question_system_capabilities: Asking what the bot can do
+            - question_status: Asking about status of intro/request
+            - clarification: User asking for clarification
+            - schedule_meeting: Scheduling related
+            - update_profile: Updating their info
+            - farewell: Goodbye messages
+            - acknowledgment: Confirming, agreeing, saying yes/ok/sure (ESPECIALLY after match suggestions)
+            - other: Anything else
 
             Return JSON object only.
 
@@ -86,19 +94,31 @@ class IntentClassifier:
                 },
                 "sentiment": "neutral"
             }
+
+            Example with context:
+            Bot: "I found James Williams, a React developer. Want me to introduce you?"
+            User: "Yes please"
+            Output: {
+                "intent": "acknowledgment",
+                "confidence": 0.95,
+                "entities": {},
+                "sentiment": "positive"
+            }
             """
 
+            # Build messages with conversation history
+            messages = [{"role": "system", "content": system_prompt}]
+
+            # Add conversation history if provided (last 3 messages for context)
+            if conversation_history:
+                recent_history = conversation_history[-3:] if len(conversation_history) > 3 else conversation_history
+                messages.extend(recent_history)
+
+            # Add current user message
+            messages.append({"role": "user", "content": text})
+
             chat_completion = self.client.chat.completions.create(
-                messages=[
-                    {
-                        "role": "system",
-                        "content": system_prompt
-                    },
-                    {
-                        "role": "user",
-                        "content": text
-                    }
-                ],
+                messages=messages,
                 model=self.model,
                 temperature=0.0,
                 response_format={"type": "json_object"}
