@@ -54,7 +54,7 @@ class SeriesKafkaConsumer:
                 'sasl.username': self.sasl_username,
                 'sasl.password': self.sasl_password,
                 'group.id': self.group_id,
-                'auto.offset.reset': 'latest',
+                'auto.offset.reset': 'earliest',
                 'enable.auto.commit': True,
             }
 
