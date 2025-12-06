@@ -139,7 +139,7 @@ class CatalystMatcher:
         # Check industry match
         required_industry = requirements.get('industry', '')
         if required_industry:
-            candidate_interests = [i.lower() for i in self._normalize_list(candidate.get('interests', [])) if isinstance(i, str)]
+            candidate_interests = [i.lower() if isinstance(i, str) else str(i).lower() for i in self._normalize_list(candidate.get('interests', []))]
             if required_industry.lower() in ' '.join(candidate_interests):
                 score += 0.2
                 hits += 1
@@ -304,7 +304,9 @@ class CatalystMatcher:
         requester_problems = set(p.lower() for p in self._normalize_list(requester.get('problems_solved', [])) if isinstance(p, str))
         candidate_challenges = []
         for project in candidate.get('current_projects', []):
-            candidate_challenges.extend(c.lower() for c in project.get('challenges', []) if isinstance(c, str))
+            # Normalize challenges in case they're nested
+            challenges = self._normalize_list(project.get('challenges', []))
+            candidate_challenges.extend(c.lower() for c in challenges if isinstance(c, str))
         candidate_challenges_set = set(candidate_challenges)
         
         # If from different domains but candidate is facing problems requester solved

@@ -344,6 +344,35 @@ class SeriesAIFriend:
                 if has_pending_match:
                     last_match = self.session_state[sender]['last_match']
 
+            # CHECK: Did they ask about dating/personal compatibility with a pending match?
+            dating_context_switch_keywords = ['date', 'dating', 'interested in', 'ask out', 'vibe', 'romantic']
+            if has_pending_match and any(keyword in text_lower for keyword in dating_context_switch_keywords):
+                # They're asking about the personal side!
+                logger.info(f"[CONTEXT-SWITCH] User asking about personal compatibility with {last_match['name']}")
+                
+                # Load requester profile
+                requester_profile = self.storage.get_user(sender)
+                if not requester_profile:
+                    requester_profile = {'phone': sender}
+                
+                # Calculate personal compatibility
+                compat_score, compat_explanation = self.matcher.calculate_personal_compatibility(requester_profile, last_match)
+                
+                # Humorous response
+                intro = random.choice([
+                    "😂 Switching gears from professional to personal, I see!",
+                    "👀 Oh interessting! Let me check the personal vibe...",
+                    "Haha okay, let's see if there's chemistry beyond the resume!"
+                ])
+                
+                response = f"{intro}\n\n{compat_explanation}"
+                
+                if compat_score >= 0.5:
+                    response += f"\n\nCompatibility Score: {int(compat_score * 100)}%\n\nWant me to mention you're interested when I make the intro? 😏"
+                
+                self._send_message(sender, response)
+                return
+
             # CHECK: Did they mention a specific person's name from the matches?
             selected_match = None
             if all_matches:

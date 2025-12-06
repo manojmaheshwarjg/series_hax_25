@@ -386,6 +386,78 @@ class Matcher:
 
         return ". ".join(parts)
 
+    def calculate_personal_compatibility(self, requester: Dict[str, Any], candidate: Dict[str, Any]) -> Tuple[float, str]:
+        """
+        Calculate personal/dating compatibility between requester and candidate.
+        
+        Returns:
+            Tuple of (compatibility_score, humorous_explanation)
+        """
+        score = 0.0
+        reasons = []
+        
+        # Check if both are single
+        req_status = requester.get('relationship_status', 'Unknown')
+        cand_status = candidate.get('relationship_status', 'Unknown')
+        
+        if req_status != 'Single' or cand_status != 'Single':
+            return (0.0, f"😬 {candidate.get('name')} is {cand_status.lower()}. Maybe stick to professional networking!")
+        
+        # Gender preference check
+        req_prefs = requester.get('dating_preferences', {})
+        cand_prefs = candidate.get('dating_preferences', {})
+        
+        if not req_prefs or not cand_prefs:
+            return (0.0, "Not enough personal info to check compatibility!")
+        
+        req_gender = requester.get('gender')
+        cand_gender = candidate.get('gender')
+        
+        # Mutual gender preference match
+        if cand_gender in req_prefs.get('gender', []) and req_gender in cand_prefs.get('gender', []):
+            score += 0.4
+            reasons.append("✅ Mutual attraction vibes")
+        else:
+            return (0.1, f"😅 Gender preferences don't align. But hey, {candidate.get('name')} would be a great professional connection!")
+        
+        # Age compatibility
+        req_age = requester.get('age', 30)
+        cand_age = candidate.get('age', 30)
+        
+        req_age_range = (req_prefs.get('age_min', 22), req_prefs.get('age_max', 45))
+        cand_age_range = (cand_prefs.get('age_min', 22), cand_prefs.get('age_max', 45))
+        
+        if req_age_range[0] <= cand_age <= req_age_range[1] and cand_age_range[0] <= req_age <= cand_age_range[1]:
+            score += 0.2
+            reasons.append("✅ Age ranges align")
+        
+        # Hobby overlap
+        req_hobbies = set(requester.get('hobbies', []))
+        cand_hobbies = set(candidate.get('hobbies', []))
+        shared_hobbies = req_hobbies & cand_hobbies
+        
+        if shared_hobbies:
+            hobby_score = min(len(shared_hobbies) / 3.0, 0.3)
+            score += hobby_score
+            reasons.append(f"✅ Both love: {', '.join(list(shared_hobbies)[:2])}")
+        
+        # Location bonus
+        if requester.get('location') == candidate.get('location'):
+            score += 0.1
+            reasons.append("✅ Same city")
+        
+        # Generate humorous explanation
+        if score >= 0.7:
+            vibe = "🔥 High compatibility!"
+        elif score >= 0.5:
+            vibe = "😊 Decent match!"
+        else:
+            vibe = "🤷 Could work, but not perfect"
+        
+        explanation = f"{vibe} {' | '.join(reasons)}"
+        
+        return (min(score, 1.0), explanation)
+
 
 if __name__ == "__main__":
     # Test matcher

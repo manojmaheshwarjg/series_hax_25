@@ -240,6 +240,34 @@ class NetworkGenerator:
         # Willingness to mentor
         willing_to_mentor = random.random() < 0.4  # 40% willing to mentor
 
+        # === PERSONAL/DATING ATTRIBUTES ===
+        age = random.randint(22, 45)
+        gender = random.choice(['Male', 'Female', 'Non-binary'])
+        relationship_status = random.choice(['Single', 'Single', 'Single', 'In a relationship', 'Married'])  # Weighted toward single
+        
+        # Personal interests (hobbies, not work-related)
+        personal_hobbies = ['hiking', 'yoga', 'cooking', 'travel', 'photography', 'music', 'art', 
+                           'reading', 'gaming', 'fitness', 'dancing', 'meditation', 'coffee', 
+                           'wine tasting', 'concerts', 'beach', 'skiing', 'running', 'cycling']
+        hobbies = random.sample(personal_hobbies, random.randint(2, 5))
+        
+        # Dating preferences (only if single)
+        dating_preferences = None
+        if relationship_status == 'Single':
+            preferred_genders = []
+            if gender == 'Male':
+                preferred_genders = ['Female'] if random.random() < 0.9 else ['Male', 'Non-binary']
+            elif gender == 'Female':
+                preferred_genders = ['Male'] if random.random() < 0.9 else ['Female', 'Non-binary']
+            else:
+                preferred_genders = random.choice([['Male'], ['Female'], ['Male', 'Female', 'Non-binary']])
+            
+            dating_preferences = {
+                'gender': preferred_genders,
+                'age_min': max(22, age - 8),
+                'age_max': min(45, age + 8)
+            }
+
         user = {
             'phone': phone,
             'name': name,
@@ -266,6 +294,12 @@ class NetworkGenerator:
             'years_experience': years_experience,
             'problems_solved': problems_solved,
             'willing_to_mentor': willing_to_mentor,
+            # === PERSONAL/DATING FIELDS ===
+            'age': age,
+            'gender': gender,
+            'relationship_status': relationship_status,
+            'hobbies': hobbies,
+            'dating_preferences': dating_preferences,
         }
 
         return user
