@@ -305,6 +305,7 @@ class SeriesAIFriend:
                 if sender not in self.session_state:
                     self.session_state[sender] = {
                         'last_match': None,
+                        'all_matches': [],  # Store all presented matches
                         'pending_intro': None,
                         'conversation_history': [],
                         'rejected_matches': [],  # Track rejected candidates
@@ -339,11 +340,25 @@ class SeriesAIFriend:
             with self.session_state_lock:
                 has_pending_match = self.session_state[sender]['last_match'] is not None
                 rejection_just_happened = self.session_state[sender].get('rejection_just_happened', False)
+                all_matches = self.session_state[sender].get('all_matches', [])
                 if has_pending_match:
                     last_match = self.session_state[sender]['last_match']
 
+            # CHECK: Did they mention a specific person's name from the matches?
+            selected_match = None
+            if all_matches:
+                for match in all_matches:
+                    match_first_name = match['name'].split()[0].lower()
+                    if match_first_name in text_lower:
+                        selected_match = match
+                        logger.info(f"[MATCH-SELECTION] User selected: {match['name']}")
+                        break
+
             # CRITICAL: Don't confirm if rejection just happened
-            if has_pending_match and not rejection_just_happened and any(keyword in text_lower for keyword in confirmation_keywords) and len(text.split()) <= 5:
+            if has_pending_match and not rejection_just_happened and any(keyword in text_lower for keyword in confirmation_keywords):
+                # Use selected match if they specified, otherwise use default
+                chosen_match = selected_match if selected_match else last_match
+
                 # Short message with confirmation keyword + pending match = likely confirmation
                 logger.info(f"[FALLBACK] Detected confirmation via keywords: '{text}'")
 
@@ -352,7 +367,7 @@ class SeriesAIFriend:
                     self.session_state[sender]['conversation_history'].append({"role": "user", "content": text})
 
                 # Handle double opt-in flow
-                self._handle_intro_confirmation(sender, last_match, chat_id)
+                self._handle_intro_confirmation(sender, chosen_match, chat_id)
                 return  # Skip normal response generation
 
             # Phase 2: Update profile using profile builder (with intent awareness)
@@ -962,9 +977,9 @@ class SeriesAIFriend:
             num_matches = min(len(matches), 3)
             logger.info(f"[MATCHES-FOUND] {num_matches} matches to present")
 
-            # Format response with multiple options
+            # Format response with multiple options (CONCISE)
             response_parts = []
-            response_parts.append(f"Found {num_matches} great {'match' if num_matches == 1 else 'matches'}!\n")
+            response_parts.append(f"Found {num_matches} great {'match' if num_matches == 1 else 'matches'}!")
 
             for i, match in enumerate(matches[:num_matches], 1):
                 # Get score as percentage
@@ -974,20 +989,17 @@ class SeriesAIFriend:
                 # Log internally (not shown to user)
                 logger.info(f"[MATCH-{i}] {match.user['name']} (score: {match_score:.2f})")
 
-                # Generate description
-                description = self.response_engine.generate_match_description(match.user)
-
-                # Add to response (simple, clean format)
+                # Simple, concise format - just name, role, match percentage
                 response_parts.append(
-                    f"\n{i}. {match.user['name']} - {match.user.get('role', 'Member')}"
+                    f"{i}. {match.user['name']} - {match.user.get('role', 'Member')} ({score_percentage}% match)"
                 )
-                response_parts.append(f"   {description}")
-                response_parts.append(f"   Match: {score_percentage}%")
 
-            # Store TOP match in session for conversation memory (thread-safe)
+            # Store ALL matches in session for conversation memory (thread-safe)
             best_match = matches[0]
             with self.session_state_lock:
                 if phone in self.session_state:
+                    # Store all matches so we can detect which one they choose
+                    self.session_state[phone]['all_matches'] = [m.user for m in matches[:num_matches]]
                     self.session_state[phone]['last_match'] = best_match.user
                     # Clear rejection flag now that we have a new match
                     self.session_state[phone]['rejection_just_happened'] = False
@@ -996,9 +1008,9 @@ class SeriesAIFriend:
 
             # Add call to action
             if num_matches == 1:
-                response_parts.append(f"\n\nShould I connect you with {best_match.user['name']}?")
+                response_parts.append(f"\nWant me to connect you?")
             else:
-                response_parts.append(f"\n\nI recommend #{1} - {best_match.user['name']}. Want me to make the intro?")
+                response_parts.append(f"\nWhich one? (or I can give you more details first)")
 
             response = "\n".join(response_parts)
             return response
