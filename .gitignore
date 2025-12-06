@@ -54,3 +54,7 @@ htmlcov/
 # Flask
 instance/
 .webassets-cache
+
+# Documentation (keep only README)
+DEPLOYMENT.md
+DEMO.md

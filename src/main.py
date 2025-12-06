@@ -26,6 +26,10 @@ from platform_adapter import PlatformDetector, PlatformAdapter, Platform
 from matcher import Matcher
 from intro_manager import IntroductionManager
 from network_generator import NetworkGenerator
+from error_handler import (
+    safe_execute, handle_api_error, ErrorRecovery,
+    KafkaConnectionError, APIClientError, StorageError, MatchingError
+)
 
 load_dotenv()
 
@@ -147,6 +151,11 @@ class SeriesAIFriend:
 
             # Extract message details
             message_data = event.get('data', {})
+
+            # Handle malformed messages
+            if not message_data:
+                message_data = ErrorRecovery.handle_malformed_message(event)
+
             sender = message_data.get('from')
             text = message_data.get('text', '')
             chat_id = message_data.get('chat_id')
@@ -232,8 +241,15 @@ class SeriesAIFriend:
                 # Process any pending message edits
                 self.message_editor.process_pending_edits()
 
+        except StorageError as e:
+            logger.error(f"Storage error handling message: {e}", exc_info=True)
+            ErrorRecovery.send_error_notification(self.api_client, sender, 'storage_error')
+        except APIClientError as e:
+            logger.error(f"API error handling message: {e}", exc_info=True)
+            ErrorRecovery.send_error_notification(self.api_client, sender, 'api_error')
         except Exception as e:
             logger.error(f"Error handling message: {e}", exc_info=True)
+            ErrorRecovery.send_error_notification(self.api_client, sender, 'unknown')
 
     def handle_reaction(self, event: Dict[str, Any]):
         """Handle reaction event"""
@@ -468,6 +484,7 @@ class SeriesAIFriend:
         logger.info(f"Initialized network with {len(network)} users")
         return network
 
+    @safe_execute(fallback_value="Sorry, I'm having trouble searching my network right now. Can you try again?")
     def _handle_matching_request(self, phone: str, profile: Dict[str, Any]) -> str:
         """
         Handle matching request (Phase 4)
@@ -479,35 +496,39 @@ class SeriesAIFriend:
         Returns:
             Response message
         """
-        # Get gathered requirements
-        requirements = self.conversation_manager.get_gathered_info(phone)
+        try:
+            # Get gathered requirements
+            requirements = self.conversation_manager.get_gathered_info(phone)
 
-        logger.info(f"Finding matches for: {requirements}")
+            logger.info(f"Finding matches for: {requirements}")
 
-        # Find matches
-        matches = self.matcher.find_matches(requirements, self.network, profile, top_n=3)
+            # Find matches
+            matches = self.matcher.find_matches(requirements, self.network, profile, top_n=3)
 
-        if not matches:
-            # No matches found
-            self.conversation_manager.reset_context(phone)
-            return "Hmm, I don't have anyone in my network who fits right now. But I'll keep this in mind!"
+            if not matches:
+                # No matches found
+                self.conversation_manager.reset_context(phone)
+                return "Hmm, I don't have anyone in my network who fits right now. But I'll keep this in mind!"
 
-        # Get best match
-        best_match = matches[0]
+            # Get best match
+            best_match = matches[0]
 
-        # Generate explanation
-        explanation = self.matcher.explain_match(best_match)
+            # Generate explanation
+            explanation = self.matcher.explain_match(best_match)
 
-        # Initiate introduction
-        intro_id = self.intro_manager.initiate_introduction(
-            profile,
-            best_match.user,
-            requirements,
-            explanation
-        )
+            # Initiate introduction
+            intro_id = self.intro_manager.initiate_introduction(
+                profile,
+                best_match.user,
+                requirements,
+                explanation
+            )
 
-        # Return confirmation (actual message sent by intro_manager)
-        return None  # intro_manager already sent message
+            # Return confirmation (actual message sent by intro_manager)
+            return None  # intro_manager already sent message
+        except Exception as e:
+            logger.error(f"Matching error: {e}", exc_info=True)
+            raise MatchingError(f"Failed to find matches: {e}")
 
     def start(self):
         """Start the application"""
@@ -518,14 +539,39 @@ class SeriesAIFriend:
         logger.info(f"User Phone: {self.user_phone}")
         logger.info("=" * 60)
 
-        try:
-            self.consumer.start()
-        except KeyboardInterrupt:
-            logger.info("Shutting down...")
-        except Exception as e:
-            logger.error(f"Fatal error: {e}", exc_info=True)
-        finally:
-            logger.info("Series AI Friend stopped")
+        retry_count = 0
+        max_retries = 3
+
+        while retry_count < max_retries:
+            try:
+                self.consumer.start()
+                break  # Success
+            except KeyboardInterrupt:
+                logger.info("Shutting down...")
+                break
+            except KafkaConnectionError as e:
+                logger.error(f"Kafka connection error: {e}", exc_info=True)
+                retry_count += 1
+                if retry_count < max_retries:
+                    logger.info(f"Attempting to reconnect ({retry_count}/{max_retries})...")
+                    if ErrorRecovery.recover_from_kafka_disconnect(self.consumer):
+                        logger.info("Reconnection successful")
+                        retry_count = 0  # Reset counter
+                    else:
+                        import time
+                        time.sleep(5 * retry_count)  # Exponential backoff
+                else:
+                    logger.error("Max reconnection attempts reached. Exiting.")
+            except Exception as e:
+                logger.error(f"Fatal error: {e}", exc_info=True)
+                retry_count += 1
+                if retry_count >= max_retries:
+                    logger.error("Max retries reached. Exiting.")
+                    break
+                import time
+                time.sleep(5)
+
+        logger.info("Series AI Friend stopped")
 
 
 def main():

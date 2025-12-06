@@ -10,6 +10,7 @@ import os
 from typing import Optional, Dict, Any, List
 from dotenv import load_dotenv
 import random
+from error_handler import handle_api_error, APIClientError
 
 load_dotenv()
 
@@ -104,6 +105,7 @@ class SeriesAPIClient:
             return response.get('messages', [])
         return None
 
+    @handle_api_error
     def send_message(self, to_number: str, text: str, chat_id: Optional[str] = None) -> Optional[Dict]:
         """Send a text message"""
         data = {
@@ -122,6 +124,7 @@ class SeriesAPIClient:
             logger.info(f"Message sent successfully")
         else:
             logger.error(f"Failed to send message")
+            raise APIClientError("Failed to send message")
 
         return response
 
