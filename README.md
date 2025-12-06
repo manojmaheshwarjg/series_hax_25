@@ -14,7 +14,7 @@ Traditional networking algorithms are one-dimensional: *Person A needs X → Per
 
 I built **Catalyst Pairing (Reciprocal Momentum Matching)**, a novel algorithm that orchestrates introductions based on bidirectional value and growth velocity. It matches people not just on what they need, but on the *chemistry of their combined momentum*.
 
-### The 5 Dimensions of Catalyst Scoring
+### The Core Dimensions of Catalyst Scoring
 
 1.  **Reciprocal Value (30% weight)**
     *Does the requester have something the candidate implicitly needs?*
@@ -35,6 +35,11 @@ I built **Catalyst Pairing (Reciprocal Momentum Matching)**, a novel algorithm t
 5.  **Serendipity (10% weight)**
     *Algorithmically engineered luck.*
     Surfaces "weird" high-potential matches—cross-domain problem solvers (e.g., "Healthcare Founder" matched with "Fintech Engineer" who solved the exact same regulatory scaling problem).
+
+**Plus:**
+- **Complementary Weaknesses** - Bidirectional skill gap matching
+- **Network Effects** - Second-degree connection analysis
+- **Information-Theoretic Scarcity** - Rare skills boosted via Shannon entropy: `I(skill) = -log₂(P(skill))`
 
 ---
 
