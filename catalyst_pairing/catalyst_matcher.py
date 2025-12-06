@@ -91,12 +91,28 @@ class CatalystMatcher:
             network_score, valuable_conns = self._score_network_effects(requester, candidate, network)
             scores['network_effects'] = network_score
             extra_details['network'] = valuable_conns
+            
+            # 8. NEW: Information-Theoretic Scarcity (Shannon Entropy)
+            # This is a MULTIPLIER, not an additive score
+            scarcity_multiplier, skill_info = self._calculate_scarcity_score(candidate, network)
+            extra_details['scarcity'] = {
+                'multiplier': scarcity_multiplier,
+                'top_rare_skills': sorted(skill_info.items(), key=lambda x: x[1], reverse=True)[:3]
+            }
         else:
             scores['network_effects'] = 0.0
             extra_details['network'] = []
+            scarcity_multiplier = 1.0  # No boost if no network
+            extra_details['scarcity'] = {'multiplier': 1.0, 'top_rare_skills': []}
         
         # Calculate weighted total with new components
-        total_score = sum(scores[key] * self.weights.get(key, 0.1) for key in scores)
+        base_score = sum(scores[key] * self.weights.get(key, 0.1) for key in scores)
+        
+        # Apply scarcity multiplier for rare skills (multiplicative boost)
+        total_score = base_score * scarcity_multiplier
+        
+        # Store scarcity multiplier in component scores for logging
+        scores['scarcity_multiplier'] = scarcity_multiplier
         
         # Generate explanation (enhanced with new details)
         explanation = self._generate_explanation(requester, candidate, scores, extra_details)
@@ -475,6 +491,66 @@ class CatalystMatcher:
                 score += 0.15  # Each valuable connection adds value
         
         return min(score, 0.6), valuable_connections[:5]  # Cap at 0.6, show top 5
+    
+    def _calculate_scarcity_score(self, candidate: Dict[str, Any], 
+                                   network: List[Dict[str, Any]]) -> Tuple[float, Dict[str, float]]:
+        """
+        Calculate information-theoretic scarcity score using Shannon entropy
+        
+        Core Algorithm (Information Theory):
+        - Rare skills have high information content (Shannon entropy)
+        - I(skill) = -log₂(P(skill)) where P = frequency in network
+        - Combining rare skills creates exponential value
+        
+        This is mathematically rigorous and based on Claude Shannon's work.
+        """
+        if not network or len(network) == 0:
+            return 1.0, {}  # Neutral if no network data
+        
+        try:
+            total_information = 0.0
+            skill_info = {}
+            
+            candidate_skills = self._normalize_list(candidate.get('skills', []))
+            
+            for skill in candidate_skills:
+                if not isinstance(skill, str):
+                    continue
+                
+                skill_lower = skill.lower()
+                
+                # Count how many people in network have this skill
+                count = sum(
+                    1 for user in network 
+                    if skill_lower in ' '.join([s.lower() for s in self._normalize_list(user.get('skills', [])) if isinstance(s, str)])
+                )
+                
+                # Calculate probability
+                probability = count / len(network) if len(network) > 0 else 0.5
+                
+                # Avoid log(0) by ensuring minimum probability
+                probability = max(probability, 0.001)
+                
+                # Calculate information content (bits of information)
+                # Higher information = Rarer skill = More valuable
+                information = -math.log2(probability)
+                
+                total_information += information
+                skill_info[skill] = information
+            
+            # Convert total information to multiplier
+            # Using exponential function for non-linear boost to rare combinations
+            # Divide by 10 to normalize (average skill has ~3-4 bits)
+            scarcity_multiplier = math.exp(total_information / 20)
+            
+            # Cap multiplier to prevent extreme values
+            scarcity_multiplier = min(scarcity_multiplier, 2.5)
+            
+            return scarcity_multiplier, skill_info
+            
+        except Exception as e:
+            logger.warning(f"Error calculating scarcity score: {e}")
+            return 1.0, {}  # Neutral fallback
 
 
     def _generate_explanation(self, requester: Dict[str, Any],
