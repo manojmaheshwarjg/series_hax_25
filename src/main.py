@@ -7,6 +7,7 @@ import logging
 import os
 import sys
 import random
+import threading
 from typing import Dict, Any, Optional, List
 from dotenv import load_dotenv
 
@@ -87,6 +88,11 @@ class SeriesAIFriend:
         
         # Session state for conversation memory and double opt-in flow
         self.session_state: Dict[str, Dict[str, Any]] = {}
+        self.session_state_file = 'data/session_state.json'
+        self.session_state_lock = threading.Lock()  # Thread-safe access
+
+        # Load persisted session state on startup
+        self._load_session_state()
 
         self.user_phone = os.getenv('USER_PHONE')
         self.sender_number = os.getenv('SENDER_NUMBER')
@@ -150,6 +156,87 @@ class SeriesAIFriend:
         self.consumer.register_handler('reaction.added', self.handle_reaction)
         self.consumer.register_handler('typing_indicator.*', self.handle_typing_indicator)
 
+    def _save_session_state(self):
+        """
+        Save session state to disk for persistence across restarts
+        CRITICAL: Prevents data loss when bot restarts
+        Thread-safe with lock
+        """
+        try:
+            import json
+            # Ensure data directory exists
+            os.makedirs(os.path.dirname(self.session_state_file), exist_ok=True)
+
+            with self.session_state_lock:
+                # Create a copy to avoid holding lock during I/O
+                state_copy = self.session_state.copy()
+
+            # Write to disk without holding lock (I/O is slow)
+            with open(self.session_state_file, 'w') as f:
+                json.dump(state_copy, f, indent=2)
+
+            logger.debug(f"[SESSION-PERSIST] Saved session state ({len(state_copy)} users)")
+        except Exception as e:
+            logger.error(f"[SESSION-PERSIST] Failed to save session state: {e}")
+
+    def _load_session_state(self):
+        """
+        Load session state from disk on startup
+        CRITICAL: Restore conversation memory after restarts
+        Thread-safe with lock
+        """
+        try:
+            import json
+            if os.path.exists(self.session_state_file):
+                with open(self.session_state_file, 'r') as f:
+                    loaded_state = json.load(f)
+
+                with self.session_state_lock:
+                    self.session_state = loaded_state
+
+                logger.info(f"[SESSION-PERSIST] Loaded session state ({len(self.session_state)} users)")
+            else:
+                logger.info(f"[SESSION-PERSIST] No existing session state file found")
+        except Exception as e:
+            logger.error(f"[SESSION-PERSIST] Failed to load session state: {e}")
+            # Continue with empty session state
+            with self.session_state_lock:
+                self.session_state = {}
+
+    def _clear_stale_contexts(self, phone: str):
+        """
+        Clear stale conversation contexts to prevent requirement pollution
+        CRITICAL: Prevents old search requirements from bleeding into new conversations
+
+        Args:
+            phone: User's phone number
+        """
+        from datetime import datetime, timedelta
+
+        conv_context = self.conversation_manager.get_or_create_context(phone)
+
+        # Check if context is stale (last updated >5 minutes ago)
+        if conv_context:
+            time_since_update = datetime.utcnow() - conv_context.updated_at
+            is_stale = time_since_update > timedelta(minutes=5)
+            is_idle = conv_context.state == ConversationState.IDLE
+
+            if is_stale and is_idle and conv_context.gathered_info:
+                # Clear stale search requirements
+                logger.info(f"[STALE-CONTEXT] Clearing {time_since_update.seconds//60}m old context")
+                logger.debug(f"[STALE-CONTEXT] Cleared: {conv_context.gathered_info}")
+
+                self.conversation_manager.reset_context(phone)
+
+                # Also clear session state search data
+                with self.session_state_lock:
+                    if phone in self.session_state:
+                        if self.session_state[phone]['last_match']:
+                            self.session_state[phone]['last_match'] = None
+                            logger.debug(f"[STALE-CONTEXT] Cleared last_match")
+
+                self._save_session_state()
+
     def get_response_template(self, intent: str) -> str:
         """Get a random response template for an intent"""
         templates = self.response_templates.get(intent, self.response_templates['default'])
@@ -209,21 +296,28 @@ class SeriesAIFriend:
                 'timestamp': event.get('timestamp')
             })
 
-            # Get or create session state for this user
-            if sender not in self.session_state:
-                self.session_state[sender] = {
-                    'last_match': None,
-                    'pending_intro': None,
-                    'conversation_history': [],
-                    'rejected_matches': []  # Track rejected candidates
-                }
+            # CRITICAL: Clear stale conversation contexts (>5 minutes IDLE)
+            self._clear_stale_contexts(sender)
+
+            # Get or create session state for this user (thread-safe)
+            with self.session_state_lock:
+                if sender not in self.session_state:
+                    self.session_state[sender] = {
+                        'last_match': None,
+                        'pending_intro': None,
+                        'conversation_history': [],
+                        'rejected_matches': [],  # Track rejected candidates
+                        'rejection_just_happened': False  # Prevent wrong confirmations after rejection
+                    }
+                    self._save_session_state()  # Persist new session
 
             # Phase 2: Advanced NLP Analysis
             nlp_analysis = self.nlp_engine.analyze(text)
             logger.info(f"NLP: sentiment={nlp_analysis.sentiment_label}, topics={nlp_analysis.topics}")
 
-            # Build conversation history for context-aware classification
-            conversation_history = self.session_state[sender]['conversation_history']
+            # Build conversation history for context-aware classification (thread-safe)
+            with self.session_state_lock:
+                conversation_history = self.session_state[sender]['conversation_history'].copy()
             
             # Get conversation context
             conv_context = self.conversation_manager.get_conversation_state(sender)
@@ -232,18 +326,25 @@ class SeriesAIFriend:
             intent_result = self.intent_classifier.classify(text, conversation_history)
             logger.info(f"Intent: {intent_result.intent} (confidence: {intent_result.confidence:.2f})")
 
-            # FALLBACK: Check for confirmation keywords if there's a pending match
+            # FALLBACK: Check for confirmation keywords if there's a pending match (thread-safe)
             # This handles cases where intent classification might miss confirmations
             confirmation_keywords = ['yes', 'sure', 'ok', 'okay', 'please', 'connect', 'go ahead', 'sounds good', 'perfect', 'great']
             text_lower = text.lower().strip()
 
-            if self.session_state[sender]['last_match'] and any(keyword in text_lower for keyword in confirmation_keywords) and len(text.split()) <= 5:
+            with self.session_state_lock:
+                has_pending_match = self.session_state[sender]['last_match'] is not None
+                rejection_just_happened = self.session_state[sender].get('rejection_just_happened', False)
+                if has_pending_match:
+                    last_match = self.session_state[sender]['last_match']
+
+            # CRITICAL: Don't confirm if rejection just happened
+            if has_pending_match and not rejection_just_happened and any(keyword in text_lower for keyword in confirmation_keywords) and len(text.split()) <= 5:
                 # Short message with confirmation keyword + pending match = likely confirmation
                 logger.info(f"[FALLBACK] Detected confirmation via keywords: '{text}'")
-                last_match = self.session_state[sender]['last_match']
 
-                # Add to conversation history
-                self.session_state[sender]['conversation_history'].append({"role": "user", "content": text})
+                # Add to conversation history (thread-safe)
+                with self.session_state_lock:
+                    self.session_state[sender]['conversation_history'].append({"role": "user", "content": text})
 
                 # Handle double opt-in flow
                 self._handle_intro_confirmation(sender, last_match, chat_id)
@@ -293,42 +394,152 @@ class SeriesAIFriend:
             # Get conversation context
             conv_context = self.conversation_manager.get_or_create_context(sender)
 
-            # CRITICAL: Detect if user is rejecting the last match
-            rejection_keywords = ['no', 'nope', 'nah', 'someone else', 'not them', 'different', 'another']
+            # CRITICAL: Detect special commands (thread-safe)
             text_lower = text.lower().strip()
-            has_rejection = any(keyword in text_lower for keyword in rejection_keywords)
 
-            if has_rejection and self.session_state[sender]['last_match']:
-                # User is rejecting the last suggested match
-                rejected_match = self.session_state[sender]['last_match']
-                rejected_name = rejected_match.get('name')
+            # Check if user wants to reset rejected matches
+            reset_keywords = ['re-show', 'show me again', 'go back', 'reset', 'start over', 'show them again']
+            wants_reset = any(keyword in text_lower for keyword in reset_keywords)
 
-                if rejected_name not in self.session_state[sender]['rejected_matches']:
-                    self.session_state[sender]['rejected_matches'].append(rejected_name)
-                    logger.info(f"[REJECTION] User rejected: {rejected_name}")
-                    logger.info(f"[REJECTION] Rejected list: {self.session_state[sender]['rejected_matches']}")
+            if wants_reset:
+                with self.session_state_lock:
+                    if self.session_state[sender]['rejected_matches']:
+                        # Clear rejected matches
+                        num_cleared = len(self.session_state[sender]['rejected_matches'])
+                        self.session_state[sender]['rejected_matches'] = []
+                        logger.info(f"[RESET-REJECTIONS] Cleared {num_cleared} rejected matches")
 
-                # Clear last match so we search for new one
-                self.session_state[sender]['last_match'] = None
-
-            # Check if user is confirming a previous match (intent-based detection)
-            if intent_result.intent in ['acknowledgment', 'explicit_intro_request'] and self.session_state[sender]['last_match'] and not intent_result.entities and not has_rejection:
-                # User said "yes" or "connect me" - they want the last match!
-                last_match = self.session_state[sender]['last_match']
-                logger.info(f"[CONTEXT] User confirming intro with: {last_match['name']}")
+                self._save_session_state()
 
                 # Add to conversation history
-                self.session_state[sender]['conversation_history'].append({"role": "user", "content": text})
+                with self.session_state_lock:
+                    self.session_state[sender]['conversation_history'].append({"role": "user", "content": text})
+
+                # Trigger new search with reset list
+                conv_context = self.conversation_manager.get_conversation_state(sender)
+                requirements = conv_context.gathered_info
+
+                if requirements:
+                    logger.info(f"[RESET-SEARCH] Searching again with reset rejections")
+                    reset_response = self._handle_matching_request(sender, profile, requirements, chat_id)
+
+                    if reset_response:
+                        reset_ack = f"Okay! Let me show you the matches again. Here's one:\n\n{reset_response}"
+
+                        # Add to conversation history
+                        with self.session_state_lock:
+                            self.session_state[sender]['conversation_history'].append({
+                                "role": "assistant",
+                                "content": reset_ack
+                            })
+                        self._save_session_state()
+
+                        # Send response
+                        self._send_human_like_message(sender, reset_ack, chat_id, 3)
+                        return  # Skip normal flow
+
+            # CRITICAL: Detect if user is rejecting the last match (thread-safe)
+            rejection_keywords = ['no', 'nope', 'nah', 'someone else', 'not them', 'different', 'another']
+            has_rejection = any(keyword in text_lower for keyword in rejection_keywords)
+
+            if has_rejection:
+                rejected_someone = False
+                with self.session_state_lock:
+                    if self.session_state[sender]['last_match']:
+                        # User is rejecting the last suggested match
+                        rejected_match = self.session_state[sender]['last_match']
+                        rejected_name = rejected_match.get('name')
+
+                        # CRITICAL: Validate rejection data before adding
+                        if rejected_name and isinstance(rejected_name, str) and rejected_name.strip():
+                            rejected_someone = True
+
+                            if rejected_name not in self.session_state[sender]['rejected_matches']:
+                                self.session_state[sender]['rejected_matches'].append(rejected_name)
+                                logger.info(f"[REJECTION] User rejected: {rejected_name}")
+                                logger.info(f"[REJECTION] Rejected list: {self.session_state[sender]['rejected_matches']}")
+
+                            # Set rejection flag to prevent accidental confirmations
+                            self.session_state[sender]['rejection_just_happened'] = True
+                        else:
+                            logger.warning(f"[REJECTION-INVALID] Invalid rejected_name: {rejected_name!r}")
+
+                        # Clear last match so we search for new one
+                        self.session_state[sender]['last_match'] = None
+
+                self._save_session_state()  # Persist rejection data
+
+                # CRITICAL FIX: Acknowledge rejection + trigger new search
+                if rejected_someone:
+                    logger.info(f"[REJECTION-ACK] Sending acknowledgment and searching for alternatives")
+
+                    # Add to conversation history
+                    with self.session_state_lock:
+                        self.session_state[sender]['conversation_history'].append({"role": "user", "content": text})
+
+                    # Trigger new search immediately (this will find different match)
+                    conv_context = self.conversation_manager.get_conversation_state(sender)
+                    requirements = conv_context.gathered_info
+
+                    if requirements:
+                        # Get excluded names
+                        with self.session_state_lock:
+                            excluded_names = self.session_state[sender].get('rejected_matches', []).copy()
+
+                        # Search for alternative match
+                        logger.info(f"[REJECTION-SEARCH] Searching for alternative (excluding {len(excluded_names)} rejected)")
+                        alternative_response = self._handle_matching_request(sender, profile, requirements, chat_id)
+
+                        if alternative_response:
+                            # Send acknowledgment + new match
+                            acknowledgments = [
+                                "No problem! Let me find someone else...",
+                                "Got it! Searching for another match...",
+                                "Understood. Let me look for someone different...",
+                                "Sure thing! Finding you another option..."
+                            ]
+                            ack_message = random.choice(acknowledgments)
+
+                            # Send acknowledgment first
+                            self.api_client.send_message(sender, ack_message, chat_id)
+
+                            # Add to conversation history
+                            with self.session_state_lock:
+                                self.session_state[sender]['conversation_history'].append({
+                                    "role": "assistant",
+                                    "content": ack_message + "\n\n" + alternative_response
+                                })
+                            self._save_session_state()
+
+                            # Send alternative match
+                            self._send_human_like_message(sender, alternative_response, chat_id, 3)
+                            return  # Skip normal response generation
+
+            # Check if user is confirming a previous match (intent-based detection, thread-safe)
+            with self.session_state_lock:
+                has_match = self.session_state[sender]['last_match'] is not None
+                rejection_flag = self.session_state[sender].get('rejection_just_happened', False)
+                if has_match:
+                    last_match = self.session_state[sender]['last_match']
+
+            if intent_result.intent in ['acknowledgment', 'explicit_intro_request'] and has_match and not intent_result.entities and not has_rejection and not rejection_flag:
+                # User said "yes" or "connect me" - they want the last match!
+                logger.info(f"[CONTEXT] User confirming intro with: {last_match['name']}")
+
+                # Add to conversation history (thread-safe)
+                with self.session_state_lock:
+                    self.session_state[sender]['conversation_history'].append({"role": "user", "content": text})
 
                 # Handle double opt-in flow
                 self._handle_intro_confirmation(sender, last_match, chat_id)
                 return  # Skip normal response generation
 
-            # Add user message to conversation history
-            self.session_state[sender]['conversation_history'].append({
-                "role": "user",
-                "content": text
-            })
+            # Add user message to conversation history (thread-safe)
+            with self.session_state_lock:
+                self.session_state[sender]['conversation_history'].append({
+                    "role": "user",
+                    "content": text
+                })
 
             # Phase 2: Generate intelligent response
             response = self._generate_intelligent_response(
@@ -336,15 +547,19 @@ class SeriesAIFriend:
             )
 
             if response:
-                # Add bot response to conversation history
-                self.session_state[sender]['conversation_history'].append({
-                    "role": "assistant",
-                    "content": response
-                })
+                # Add bot response to conversation history (thread-safe)
+                with self.session_state_lock:
+                    self.session_state[sender]['conversation_history'].append({
+                        "role": "assistant",
+                        "content": response
+                    })
 
-                # Keep only last 10 messages to avoid memory bloat
-                if len(self.session_state[sender]['conversation_history']) > 10:
-                    self.session_state[sender]['conversation_history'] = self.session_state[sender]['conversation_history'][-10:]
+                    # Keep only last 10 messages to avoid memory bloat
+                    if len(self.session_state[sender]['conversation_history']) > 10:
+                        self.session_state[sender]['conversation_history'] = self.session_state[sender]['conversation_history'][-10:]
+
+                # Persist conversation history
+                self._save_session_state()
 
                 # Phase 3: Send with human-like behavior
                 self._send_human_like_message(
@@ -557,13 +772,16 @@ class SeriesAIFriend:
             # Don't pass search requirements - they're not about the user!
             logger.debug(f"[RESPONSE-CTX] Not passing search context for intent: {intent}")
 
-        # Use response engine with context and history
+        # Use response engine with context and history (thread-safe)
+        with self.session_state_lock:
+            message_history_copy = self.session_state[phone]['conversation_history'].copy()
+
         response = self.response_engine.generate_conversational_response(
             intent,
             user_name=profile.get('name'),
             entities=intent_result.entities,
             conversation_context=context_for_response,
-            message_history=self.session_state[phone]['conversation_history']
+            message_history=message_history_copy
         )
 
         # CATALYST: Check if we should ask a Catalyst question
@@ -685,10 +903,11 @@ class SeriesAIFriend:
 
             logger.info(f"Finding matches for: {requirements}")
 
-            # Get rejected matches to exclude from search
+            # Get rejected matches to exclude from search (thread-safe)
             excluded_names = []
-            if phone in self.session_state:
-                excluded_names = self.session_state[phone].get('rejected_matches', [])
+            with self.session_state_lock:
+                if phone in self.session_state:
+                    excluded_names = self.session_state[phone].get('rejected_matches', []).copy()
 
             # Find matches using CATALYST PAIRING ALGORITHM (excluding rejected ones)
             matches = self.matcher.find_best_matches(
@@ -701,28 +920,72 @@ class SeriesAIFriend:
                 matches = [m for m in matches if m.user.get('name') not in excluded_names]
 
             if not matches:
-                # No matches found
-                self.conversation_manager.reset_context(phone)
-                return "Hmm, I don't have anyone in my network who fits right now. But I'll keep this in mind!"
+                # CRITICAL FIX: Check if we have rejected some - offer to reset
+                if excluded_names:
+                    # User has rejected some matches - exhausted search
+                    logger.warning(f"[EXHAUSTED-MATCHES] No new matches (rejected {len(excluded_names)})")
+
+                    # Get last rejected name for context
+                    with self.session_state_lock:
+                        last_rejected = excluded_names[-1] if excluded_names else None
+
+                    # Offer helpful options
+                    exhausted_messages = [
+                        f"I've shown you everyone I know who matches! 😅\n\n"
+                        f"You rejected {len(excluded_names)} {'person' if len(excluded_names) == 1 else 'people'} "
+                        f"({', '.join(excluded_names[:3])}{', ...' if len(excluded_names) > 3 else ''}).\n\n"
+                        f"Want me to:\n"
+                        f"• Re-show the previous matches?\n"
+                        f"• Adjust your requirements?\n"
+                        f"Just let me know!",
+
+                        f"Looks like we've gone through everyone in my network for this! 🙈\n\n"
+                        f"I showed you {len(excluded_names)} options already. "
+                        f"Would you like me to go back to any of them, or should we adjust what you're looking for?"
+                    ]
+
+                    response = random.choice(exhausted_messages)
+
+                    # Don't reset context yet - keep requirements in case they want to adjust
+                    return response
+                else:
+                    # Genuinely no matches in network
+                    self.conversation_manager.reset_context(phone)
+                    return "Hmm, I don't have anyone in my network who fits right now. But I'll keep this in mind!"
 
             # Get best match
             best_match = matches[0]
             
-            # Store match in session for conversation memory
-            if phone in self.session_state:
-                self.session_state[phone]['last_match'] = best_match.user
-                logger.info(f"[MATCH-FOUND] {best_match.user['name']} (score: {best_match.score:.2f})")
+            # Store match in session for conversation memory (thread-safe)
+            with self.session_state_lock:
+                if phone in self.session_state:
+                    self.session_state[phone]['last_match'] = best_match.user
+                    # Clear rejection flag now that we have a new match
+                    self.session_state[phone]['rejection_just_happened'] = False
 
-            # Generate match introduction message
-            match_user = best_match.user
-            response = f"Perfect! I found someone for you:\n\n"
-            response += f"**{match_user['name']}**\n"
-            response += f"{match_user['role']}"
-            if match_user.get('current_company'):
-                response += f" at {match_user['current_company']}"
-            response += f"\nLocation: {match_user.get('location', 'N/A')}\n"
-            response += f"Skills: {', '.join(match_user['skills'][:5])}\n\n"
-            response += "Would you like me to make the introduction?"
+            # Handle both CatalystScore (has .total_score) and MatchScore (has .score)
+            match_score = getattr(best_match, 'total_score', getattr(best_match, 'score', 0.0))
+            logger.info(f"[MATCH-FOUND] {best_match.user['name']} (score: {match_score:.2f})")
+            self._save_session_state()  # Persist match
+
+            # Generate cute reasoning
+            cute_reasoning = self.response_engine.generate_match_reasoning(
+                best_match.user['name'], 
+                best_match.explanation,
+                best_match.component_scores
+            )
+            
+            # Generate natural description
+            description = self.response_engine.generate_match_description(best_match.user)
+
+            # Format output
+            response = (
+                f"I found a great match! 🎉\n\n"
+                f"👤 {best_match.user['name']} - {best_match.user.get('role', 'Member')}\n"
+                f"{description}\n\n"
+                f"💡 {cute_reasoning}\n\n"
+                f"Should I make the intro?"
+            )
             
             return response
         except Exception as e:
@@ -776,11 +1039,14 @@ class SeriesAIFriend:
             
             self.api_client.send_message(phone, intro_message, chat_id)
             
-            # Clear last match from session AND reset conversation context
-            if phone in self.session_state:
-                self.session_state[phone]['last_match'] = None
-                self.session_state[phone]['rejected_matches'] = []  # Clear rejected matches
-                logger.info(f"[SESSION-CLEARED] Cleared last_match and rejected_matches")
+            # Clear last match from session AND reset conversation context (thread-safe)
+            with self.session_state_lock:
+                if phone in self.session_state:
+                    self.session_state[phone]['last_match'] = None
+                    self.session_state[phone]['rejected_matches'] = []  # Clear rejected matches
+                    logger.info(f"[SESSION-CLEARED] Cleared last_match and rejected_matches")
+
+            self._save_session_state()  # Persist cleared state
 
             # CRITICAL: Clear search requirements from conversation context
             # This prevents the bot from treating search requirements as user attributes
