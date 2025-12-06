@@ -87,7 +87,11 @@ class CatalystConversationDirector:
         Returns:
             True if we should ask a Catalyst question
         """
-        # Don't ask too early (let user state their need first)
+        # If missing goals (critical), ask immediately (don't wait for turn 2)
+        if not profile.get('current_goals'):
+            return True
+
+        # For other fields, don't ask too early (let user state their need first)
         if conversation_turn < 2:
             return False
 
