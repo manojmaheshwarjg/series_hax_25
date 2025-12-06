@@ -205,7 +205,8 @@ class SeriesAIFriend:
                 self.session_state[sender] = {
                     'last_match': None,
                     'pending_intro': None,
-                    'conversation_history': []
+                    'conversation_history': [],
+                    'rejected_matches': []  # Track rejected candidates
                 }
 
             # Phase 2: Advanced NLP Analysis
@@ -249,8 +250,26 @@ class SeriesAIFriend:
             # Get conversation context
             conv_context = self.conversation_manager.get_or_create_context(sender)
 
+            # CRITICAL: Detect if user is rejecting the last match
+            rejection_keywords = ['no', 'nope', 'nah', 'someone else', 'not them', 'different', 'another']
+            text_lower = text.lower().strip()
+            has_rejection = any(keyword in text_lower for keyword in rejection_keywords)
+
+            if has_rejection and self.session_state[sender]['last_match']:
+                # User is rejecting the last suggested match
+                rejected_match = self.session_state[sender]['last_match']
+                rejected_name = rejected_match.get('name')
+
+                if rejected_name not in self.session_state[sender]['rejected_matches']:
+                    self.session_state[sender]['rejected_matches'].append(rejected_name)
+                    logger.info(f"[REJECTION] User rejected: {rejected_name}")
+                    logger.info(f"[REJECTION] Rejected list: {self.session_state[sender]['rejected_matches']}")
+
+                # Clear last match so we search for new one
+                self.session_state[sender]['last_match'] = None
+
             # Check if user is confirming a previous match (intent-based detection)
-            if intent_result.intent in ['acknowledgment', 'explicit_intro_request'] and self.session_state[sender]['last_match'] and not intent_result.entities:
+            if intent_result.intent in ['acknowledgment', 'explicit_intro_request'] and self.session_state[sender]['last_match'] and not intent_result.entities and not has_rejection:
                 # User said "yes" or "connect me" - they want the last match!
                 last_match = self.session_state[sender]['last_match']
                 logger.info(f"[CONTEXT] User confirming intro with: {last_match['name']}")
@@ -584,8 +603,16 @@ class SeriesAIFriend:
 
             logger.info(f"Finding matches for: {requirements}")
 
-            # Find matches
-            matches = self.matcher.find_matches(requirements, self.network, profile, top_n=3)
+            # Get rejected matches to exclude from search
+            excluded_names = []
+            if phone in self.session_state:
+                excluded_names = self.session_state[phone].get('rejected_matches', [])
+
+            # Find matches (excluding rejected ones)
+            matches = self.matcher.find_matches(
+                requirements, self.network, profile,
+                top_n=3, excluded_names=excluded_names
+            )
 
             if not matches:
                 # No matches found
@@ -666,6 +693,8 @@ class SeriesAIFriend:
             # Clear last match from session AND reset conversation context
             if phone in self.session_state:
                 self.session_state[phone]['last_match'] = None
+                self.session_state[phone]['rejected_matches'] = []  # Clear rejected matches
+                logger.info(f"[SESSION-CLEARED] Cleared last_match and rejected_matches")
 
             # CRITICAL: Clear search requirements from conversation context
             # This prevents the bot from treating search requirements as user attributes

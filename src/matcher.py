@@ -45,7 +45,8 @@ class Matcher:
         self.min_score_threshold = 0.6
 
     def find_matches(self, requirements: Dict[str, Any], network: List[Dict[str, Any]],
-                    requester: Dict[str, Any], top_n: int = 3) -> List[MatchScore]:
+                    requester: Dict[str, Any], top_n: int = 3,
+                    excluded_names: List[str] = None) -> List[MatchScore]:
         """
         Find best matches from network
 
@@ -54,17 +55,26 @@ class Matcher:
             network: List of potential matches
             requester: The person requesting the intro
             top_n: Number of top matches to return
+            excluded_names: List of names to exclude (previously rejected matches)
 
         Returns:
             List of MatchScore objects
         """
+        excluded_names = excluded_names or []
         logger.info(f"Finding matches for requirements: {requirements}")
+        if excluded_names:
+            logger.info(f"Excluding previously rejected: {excluded_names}")
 
         matches = []
 
         for candidate in network:
             # Skip if candidate is the requester
             if candidate.get('phone') == requester.get('phone'):
+                continue
+
+            # CRITICAL: Skip if candidate was previously rejected
+            if candidate.get('name') in excluded_names:
+                logger.info(f"Skipping previously rejected candidate: {candidate.get('name')}")
                 continue
 
             # Calculate match score
