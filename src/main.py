@@ -311,6 +311,7 @@ class SeriesAIFriend:
                 if sender not in self.session_state:
                     self.session_state[sender] = {
                         'last_match': None,
+                        'last_discussed_match': None,  # NEW: Track which person was just discussed (for pronoun resolution)
                         'all_matches': [],  # Store all presented matches
                         'pending_intro': None,
                         'conversation_history': [],
@@ -389,22 +390,42 @@ class SeriesAIFriend:
             
             # CHECK: Did they mention a specific person's name from the matches?
             selected_match = None
-            if all_matches and not is_details_request:
+            
+            # First, check if they mentioned a name (even for details requests - we track it!)
+            if all_matches:
                 for match in all_matches:
                     match_first_name = match['name'].split()[0].lower()
                     # Fuzzy matching: check if name is in text OR if text contains name (handles typos)
                     if match_first_name in text_lower or any(word.lower().startswith(match_first_name[:4]) for word in text.split()):
                         selected_match = match
-                        logger.info(f"[MATCH-SELECTION] User selected: {match['name']}")
+                        
+                        # CRITICAL: Track this person for pronoun resolution ("connect me with him/her")
+                        with self.session_state_lock:
+                            self.session_state[sender]['last_discussed_match'] = match
+                        
+                        logger.info(f"[MATCH-SELECTION] User {'discussed' if is_details_request else 'selected'}: {match['name']}")
                         break
 
-            # CRITICAL: Don't confirm if rejection just happened
+            # CRITICAL: Don't confirm if rejection just happened OR if it's a details request
             # FIX: If they explicitly named someone (selected_match), that counts as confirmation! 
             has_confirmation_keyword = any(keyword in text_lower for keyword in confirmation_keywords)
             
-            if has_pending_match and not rejection_just_happened and not is_details_request and (selected_match or has_confirmation_keyword):
-                # Use selected match if they specified, otherwise use default
-                chosen_match = selected_match if selected_match else last_match
+            # Check for pronouns referring to last discussed person
+            pronoun_keywords = ['him', 'her', 'them', 'this person', 'that person']
+            has_pronoun = any(keyword in text_lower for keyword in pronoun_keywords)
+            
+            with self.session_state_lock:
+                last_discussed = self.session_state[sender].get('last_discussed_match')
+            
+            if has_pending_match and not rejection_just_happened and not is_details_request and (selected_match or has_confirmation_keyword or has_pronoun):
+                # Priority: 1) Explicitly selected, 2) Last discussed (pronoun context), 3) Default last_match
+                if selected_match:
+                    chosen_match = selected_match
+                elif has_pronoun and last_discussed:
+                    chosen_match = last_discussed
+                    logger.info(f"[PRONOUN-RESOLUTION] '{text}' refers to last discussed: {chosen_match['name']}")
+                else:
+                    chosen_match = last_match
 
                 # Short message with confirmation keyword + pending match = likely confirmation
                 logger.info(f"[FALLBACK] Detected confirmation via keywords: '{text}'")
