@@ -113,7 +113,13 @@ class CatalystMatcher:
         total_requirements = 0
         
         # Check role match
-        required_role = requirements.get('role', '').lower()
+        # FIX: role can be a list like ['Software Engineer'] or a string
+        required_role_raw = requirements.get('role', '')
+        if isinstance(required_role_raw, list):
+            required_role = required_role_raw[0].lower() if required_role_raw else ''
+        else:
+            required_role = required_role_raw.lower() if required_role_raw else ''
+        
         if required_role and required_role in candidate.get('role', '').lower():
             score += 0.4
             hits += 1
