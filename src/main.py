@@ -1008,9 +1008,49 @@ class SeriesAIFriend:
                     # Don't reset context yet - keep requirements in case they want to adjust
                     return response
                 else:
-                    # Genuinely no matches in network
-                    self.conversation_manager.reset_context(phone)
-                    return "Hmm, I don't have anyone in my network who fits right now. But I'll keep this in mind!"
+                    # Genuinely no matches in network - TRY FALLBACK MATCHING
+                    logger.info("[FALLBACK] No exact matches, trying with relaxed criteria...")
+                    
+                    fallback_tier = None
+                    fallback_message = None
+                    
+                    # TIER 2: Try without industry (just role + tech)
+                    if 'industry' in requirements:
+                        tier2_reqs = {k: v for k, v in requirements.items() if k != 'industry'}
+                        logger.info(f"[FALLBACK-TIER2] Retrying without industry: {tier2_reqs}")
+                        
+                        matches = self.hybrid_matcher.find_best_matches(
+                            tier2_reqs,
+                            self.network,
+                            profile,
+                            top_n=3
+                        )
+                        
+                        if matches:
+                            fallback_tier = "tech"
+                            original_industry = requirements.get('industry', [''])[0] if isinstance(requirements.get('industry'), list) else requirements.get('industry', '')
+                            fallback_message = f"No exact {original_industry} experts, but here are similar professionals:"
+                    
+                    # TIER 3: Try with just role (most relaxed)
+                    if not matches and 'role' in requirements:
+                        tier3_reqs = {'role': requirements['role']}
+                        logger.info(f"[FALLBACK-TIER3] Retrying with just role: {tier3_reqs}")
+                        
+                        matches = self.hybrid_matcher.find_best_matches(
+                            tier3_reqs,
+                            self.network,
+                            profile,
+                            top_n=3
+                        )
+                        
+                        if matches:
+                            fallback_tier = "role"
+                            fallback_message = "No exact match, but here are professionals in a similar space:"
+                    
+                    # If still no matches, give up gracefully
+                    if not matches:
+                        self.conversation_manager.reset_context(phone)
+                        return "Hmm, I don't have anyone in my network who fits right now. Want to try a different type of connection?"
 
             # Show multiple matches (top 3) with scores
             num_matches = min(len(matches), 3)

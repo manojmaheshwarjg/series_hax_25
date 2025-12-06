@@ -109,10 +109,17 @@ class NetworkGenerator:
         }
 
         self.interests = [
-            'AI', 'machine learning', 'startups', 'open source', 'SaaS', 'fintech',
-            'healthtech', 'edtech', 'web3', 'blockchain', 'crypto', 'climate tech',
-            'e-commerce', 'developer tools', 'data science', 'cybersecurity',
-            'mobile apps', 'gaming', 'AR/VR', 'IoT', 'robotics'
+            # Tech Categories
+            'AI', 'machine learning', 'startups', 'open source', 'SaaS', 
+            'developer tools', 'data science', 'cybersecurity',
+            'mobile apps', 'gaming', 'AR/VR', 'IoT', 'robotics',
+            # Industry Verticals (for better demo matching)
+            'fintech', 'insurtech', 'healthtech', 'edtech', 'climate tech',
+            'proptech', 'legaltech', 'HR tech', 'sales tech', 'recruiting tech',
+            'supply chain', 'logistics tech', 'construction tech', 'agritech',
+            'foodtech', 'traveltech', 'mobility', 'energy tech',
+            # Other
+            'web3', 'blockchain', 'crypto', 'e-commerce'
         ]
 
         self.locations = [
