@@ -41,12 +41,12 @@ from error_handler import (
 load_dotenv()
 
 # Configure logging
+# For Railway: only use StreamHandler (stdout) since filesystem is ephemeral
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler('data/app.log')
+        logging.StreamHandler(sys.stdout)
     ]
 )
 
