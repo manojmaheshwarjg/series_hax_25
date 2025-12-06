@@ -123,6 +123,8 @@ class ConversationManager:
         """
         Determine if we need to ask clarifying questions
 
+        ENTERPRISE-GRADE: Less aggressive - if user provides clear requirements, search immediately.
+
         Args:
             user_phone: User's phone number
             entities: Extracted entities from message
@@ -132,14 +134,23 @@ class ConversationManager:
         """
         context = self.get_or_create_context(user_phone)
 
-        # Don't ask too many questions (max 3)
-        if len(context.questions_asked) >= 3:
+        # Don't ask too many questions (max 2, reduced from 3)
+        if len(context.questions_asked) >= 2:
             return False
+
+        # If user provided role OR technology, we have enough to search
+        has_role = bool(entities.get('role')) or bool(context.gathered_info.get('role'))
+        has_technology = bool(entities.get('technology')) or bool(context.gathered_info.get('technology'))
+
+        if has_role or has_technology:
+            logger.info("[PROGRESSIVE] User provided role/technology - searching immediately")
+            return False  # Don't ask questions, search now
 
         # Check what's missing
         missing_info = self._identify_missing_info(entities, context.gathered_info)
 
-        return len(missing_info) > 0
+        # Only ask questions if we're completely missing critical info
+        return len(missing_info) > 2  # Changed from > 0 to > 2 (be less aggressive)
 
     def get_next_question(self, user_phone: str, entities: Dict[str, List[str]]) -> Optional[str]:
         """
@@ -289,6 +300,8 @@ class ConversationManager:
         """
         Check if we have enough information to make a match
 
+        ENTERPRISE-GRADE: Role OR technology is sufficient to search.
+
         Args:
             user_phone: User's phone number
 
@@ -298,10 +311,11 @@ class ConversationManager:
         context = self.get_or_create_context(user_phone)
         info = context.gathered_info
 
-        # Need at least role OR technology
-        has_role = 'role' in info or 'technology' in info
+        # Need at least role OR technology (very permissive)
+        has_role = 'role' in info or 'developer' in str(info.values()).lower()
+        has_technology = 'technology' in info
 
-        return has_role
+        return has_role or has_technology
 
     def reset_context(self, user_phone: str):
         """Reset conversation context"""

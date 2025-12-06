@@ -1,18 +1,25 @@
 """
 Profile Builder
 Intelligently builds and updates user profiles from natural language conversations
+ENTERPRISE-GRADE: Prevents profile pollution from search requests
 """
 
 import logging
 from typing import Dict, List, Any, Optional
 from datetime import datetime, timedelta
 import re
+from message_context_analyzer import MessageContextAnalyzer, MessageContext
 
 logger = logging.getLogger(__name__)
 
 
 class ProfileBuilder:
-    """Builds rich user profiles from conversation data"""
+    """
+    Builds rich user profiles from conversation data
+
+    CRITICAL: Only updates profile when user is describing THEMSELVES,
+    never when they're searching for others.
+    """
 
     def __init__(self, nlp_engine=None):
         self.nlp_engine = nlp_engine
@@ -20,17 +27,25 @@ class ProfileBuilder:
         # Temporal decay weights (newer info is more relevant)
         self.decay_half_life_days = 30
 
+        # Context analyzer to prevent profile pollution
+        self.context_analyzer = MessageContextAnalyzer()
+
     def update_profile_from_message(self, profile: Dict[str, Any], message: str,
                                     entities: Dict[str, List[str]],
-                                    nlp_analysis: Optional[Any] = None) -> Dict[str, str]:
+                                    nlp_analysis: Optional[Any] = None,
+                                    intent: str = 'other') -> Dict[str, str]:
         """
         Update user profile based on message content
+
+        ENTERPRISE-GRADE SAFETY: Uses context analysis to prevent profile pollution.
+        Only updates when user is describing themselves, not when searching.
 
         Args:
             profile: Current user profile
             message: User's message
             entities: Extracted entities
             nlp_analysis: Optional NLP analysis
+            intent: Classified intent
 
         Returns:
             Dictionary of updates made
@@ -38,13 +53,25 @@ class ProfileBuilder:
         updates = {}
         message_lower = message.lower()
 
-        # Extract skills
-        skills_added = self._extract_and_add_skills(profile, entities, message_lower)
+        # CRITICAL: Check if this message should update profile
+        should_update = self.context_analyzer.should_update_profile(message, intent, entities)
+
+        if not should_update:
+            logger.info(f"[PROFILE-GUARD] Skipping profile update for search/non-profile message")
+            # Still update activity status
+            profile['last_active'] = datetime.utcnow().isoformat()
+            return {}
+
+        # Safe to update profile - user is describing themselves
+        logger.info(f"[PROFILE-UPDATE] Updating profile from self-description message")
+
+        # Extract skills (only if self-describing)
+        skills_added = self._extract_and_add_skills(profile, entities, message_lower, intent)
         if skills_added:
             updates['skills'] = f"Added {len(skills_added)} skills"
 
         # Extract interests
-        interests_added = self._extract_and_add_interests(profile, entities, message_lower)
+        interests_added = self._extract_and_add_interests(profile, entities, message_lower, intent)
         if interests_added:
             updates['interests'] = f"Added {len(interests_added)} interests"
 
@@ -91,29 +118,32 @@ class ProfileBuilder:
 
     def _extract_and_add_skills(self, profile: Dict[str, Any],
                                 entities: Dict[str, List[str]],
-                                message_lower: str) -> List[str]:
-        """Extract and add skills to profile"""
+                                message_lower: str,
+                                intent: str) -> List[str]:
+        """
+        Extract and add skills to profile
+
+        CONSERVATIVE: Only extracts from explicit self-description patterns,
+        never from bare entities (which could be search requirements)
+        """
         if 'skills' not in profile:
             profile['skills'] = []
 
         added = []
 
-        # Skills from entities
-        skill_types = ['technology', 'role', 'tool']
-        for skill_type in skill_types:
-            if skill_type in entities:
-                for skill in entities[skill_type]:
-                    if skill not in profile['skills']:
-                        profile['skills'].append(skill)
-                        added.append(skill)
-
-        # Skills from "I know/I can/I'm good at" patterns
+        # ONLY add skills from explicit self-description patterns
+        # Never blindly add entities - they could be search requirements!
         skill_patterns = [
             r"i know (\w+(?:\s+\w+)?)",
             r"i['']m good at (\w+(?:\s+\w+)?)",
             r"i can (\w+(?:\s+\w+)?)",
-            r"experienced (?:in|with) (\w+(?:\s+\w+)?)",
-            r"expert in (\w+(?:\s+\w+)?)",
+            r"i work with (\w+(?:\s+\w+)?)",
+            r"i use (\w+(?:\s+\w+)?)",
+            r"i['']m experienced (?:in|with) (\w+(?:\s+\w+)?)",
+            r"i['']m an? expert in (\w+(?:\s+\w+)?)",
+            r"i['']m an? (\w+(?:\s+\w+)?) (?:developer|engineer|designer|analyst)",
+            r"my (?:skill|expertise|background) (?:is|includes) (\w+(?:\s+\w+)?)",
+            r"i specialize in (\w+(?:\s+\w+)?)",
         ]
 
         for pattern in skill_patterns:
@@ -121,33 +151,46 @@ class ProfileBuilder:
             for match in matches:
                 skill = match.group(1).strip()
                 if skill and skill not in profile['skills'] and skill not in added:
-                    profile['skills'].append(skill)
-                    added.append(skill)
+                    # Validate skill length
+                    if len(skill) > 1 and skill not in ['a', 'an', 'the', 'at', 'in']:
+                        profile['skills'].append(skill)
+                        added.append(skill)
+                        logger.info(f"[SKILL-ADDED] '{skill}' from pattern match")
+
+        # ONLY add entities if intent is explicitly 'skill_share' or 'update_profile'
+        if intent in ['skill_share', 'update_profile']:
+            skill_types = ['technology', 'tool']  # Removed 'role' to be more conservative
+            for skill_type in skill_types:
+                if skill_type in entities:
+                    for skill in entities[skill_type]:
+                        if skill not in profile['skills'] and skill not in added:
+                            profile['skills'].append(skill)
+                            added.append(skill)
+                            logger.info(f"[SKILL-ADDED] '{skill}' from entity (safe intent)")
 
         return added
 
     def _extract_and_add_interests(self, profile: Dict[str, Any],
                                    entities: Dict[str, List[str]],
-                                   message_lower: str) -> List[str]:
-        """Extract and add interests to profile"""
+                                   message_lower: str,
+                                   intent: str) -> List[str]:
+        """
+        Extract and add interests to profile
+
+        CONSERVATIVE: Only from explicit patterns, never bare entities
+        """
         if 'interests' not in profile:
             profile['interests'] = []
 
         added = []
 
-        # Industries from entities
-        if 'industry' in entities:
-            for industry in entities['industry']:
-                if industry not in profile['interests']:
-                    profile['interests'].append(industry)
-                    added.append(industry)
-
-        # Interests from "interested in/passionate about" patterns
+        # Interests from explicit self-description patterns
         interest_patterns = [
-            r"interested in (\w+(?:\s+\w+)?)",
-            r"passionate about (\w+(?:\s+\w+)?)",
-            r"love (\w+(?:\s+\w+)?)",
-            r"into (\w+(?:\s+\w+)?)",
+            r"i['']m interested in (\w+(?:\s+\w+)?)",
+            r"i['']m passionate about (\w+(?:\s+\w+)?)",
+            r"i love (\w+(?:\s+\w+)?)",
+            r"i['']m into (\w+(?:\s+\w+)?)",
+            r"my interest(?:s)? (?:is|are|include) (\w+(?:\s+\w+)?)",
         ]
 
         for pattern in interest_patterns:
@@ -156,9 +199,19 @@ class ProfileBuilder:
                 interest = match.group(1).strip()
                 if interest and interest not in profile['interests'] and interest not in added:
                     # Filter out common words
-                    if len(interest) > 3 and interest not in ['that', 'this', 'them']:
+                    if len(interest) > 3 and interest not in ['that', 'this', 'them', 'working', 'looking']:
                         profile['interests'].append(interest)
                         added.append(interest)
+                        logger.info(f"[INTEREST-ADDED] '{interest}' from pattern match")
+
+        # Only add industry entities for safe intents
+        if intent in ['skill_share', 'update_profile']:
+            if 'industry' in entities:
+                for industry in entities['industry']:
+                    if industry not in profile['interests'] and industry not in added:
+                        profile['interests'].append(industry)
+                        added.append(industry)
+                        logger.info(f"[INTEREST-ADDED] '{industry}' from entity (safe intent)")
 
         return added
 

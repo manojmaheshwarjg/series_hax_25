@@ -236,13 +236,15 @@ class SeriesAIFriend:
                 self._handle_intro_confirmation(sender, last_match, chat_id)
                 return  # Skip normal response generation
 
-            # Phase 2: Update profile using profile builder
+            # Phase 2: Update profile using profile builder (with intent awareness)
             profile_updates = self.profile_builder.update_profile_from_message(
-                profile, text, intent_result.entities, nlp_analysis
+                profile, text, intent_result.entities, nlp_analysis, intent_result.intent
             )
             if profile_updates:
                 logger.info(f"Profile updates: {profile_updates}")
                 user_storage.update_profile(sender, profile)
+            else:
+                logger.debug(f"No profile updates (likely search request, not self-description)")
 
             # Get conversation context
             conv_context = self.conversation_manager.get_or_create_context(sender)
