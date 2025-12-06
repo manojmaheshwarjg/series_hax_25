@@ -62,44 +62,6 @@ class HybridMatcher:
             catalyst_results = []
             for match_score in traditional_matches[:top_n]:
                 catalyst_score = CatalystScore(
-                    user=match_score.user,
-                    total_score=match_score.score,
-                    component_scores={'traditional': match_score.score},
-                    explanation="Traditional skill-based match"
-                )
-                catalyst_results.append(catalyst_score)
-            return catalyst_results
-        
-        logger.info(f"Stage 2: Catalyst Pairing re-ranking")
-        catalyst_scored = []
-        
-        for match_score in traditional_matches:
-            candidate = match_score.user
-            
-            # Calculate Catalyst score
-            try:
-                total_score, component_scores, explanation = \
-                    self.catalyst_matcher.calculate_catalyst_score(
-                        requester, candidate, requirements
-                    )
-                
-                # Combine traditional and catalyst scores (70% catalyst, 30% traditional)
-                # This ensures we don't throw away proven traditional matching completely
-                hybrid_score = (0.7 * total_score) + (0.3 * match_score.score)
-                
-                catalyst_score_obj = CatalystScore(
-                    user=candidate,
-                    total_score=hybrid_score,
-                    component_scores={
-                        **component_scores,
-                        'traditional_score': match_score.score,
-                        'hybrid_score': hybrid_score
-                    },
-                    explanation=explanation
-                )
-                
-                catalyst_scored.append(catalyst_score_obj)
-                
             except Exception as e:
                 # Fail-safe: If Catalyst scoring fails, fall back to traditional
                 logger.warning(f"Catalyst scoring failed for {candidate.get('name', 'Unknown')}: {e}")
