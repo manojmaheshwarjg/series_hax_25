@@ -32,6 +32,7 @@ class ConversationContext:
     gathered_info: Dict[str, Any]
     last_question: Optional[str]
     questions_asked: List[str]
+    message_history: List[Dict[str, str]]  # New: Track full history
     created_at: datetime
     updated_at: datetime
     expires_at: datetime
@@ -83,6 +84,7 @@ class ConversationManager:
                 gathered_info={},
                 last_question=None,
                 questions_asked=[],
+                message_history=[],  # Initialize empty history
                 created_at=datetime.utcnow(),
                 updated_at=datetime.utcnow(),
                 expires_at=datetime.utcnow() + self.conversation_timeout
@@ -97,6 +99,17 @@ class ConversationManager:
 
         return self.active_conversations[user_phone]
 
+    def add_message(self, user_phone: str, role: str, content: str):
+        """Add a message to the history"""
+        context = self.get_or_create_context(user_phone)
+        context.message_history.append({
+            "role": role,
+            "content": content
+        })
+        # Keep history manageable (last 20 messages)
+        if len(context.message_history) > 20:
+            context.message_history = context.message_history[-20:]
+            
     def get_conversation_state(self, user_phone: str) -> ConversationContext:
         """Alias for get_or_create_context"""
         return self.get_or_create_context(user_phone)
