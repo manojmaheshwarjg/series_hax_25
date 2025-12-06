@@ -300,6 +300,7 @@ class SeriesAIFriend:
             self._clear_stale_contexts(sender)
 
             # Get or create session state for this user (thread-safe)
+            new_session_created = False
             with self.session_state_lock:
                 if sender not in self.session_state:
                     self.session_state[sender] = {
@@ -309,7 +310,11 @@ class SeriesAIFriend:
                         'rejected_matches': [],  # Track rejected candidates
                         'rejection_just_happened': False  # Prevent wrong confirmations after rejection
                     }
-                    self._save_session_state()  # Persist new session
+                    new_session_created = True
+
+            # Persist new session OUTSIDE lock to avoid deadlock
+            if new_session_created:
+                self._save_session_state()
 
             # Phase 2: Advanced NLP Analysis
             nlp_analysis = self.nlp_engine.analyze(text)
