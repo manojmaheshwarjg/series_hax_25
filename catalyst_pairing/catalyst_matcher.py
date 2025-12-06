@@ -86,6 +86,22 @@ class CatalystMatcher:
         
         return total_score, scores, explanation
 
+    def _normalize_list(self, data: Any) -> List[str]:
+        """Helper to ensure we have a flat list of strings"""
+        if not data:
+            return []
+        if isinstance(data, str):
+            return [data]
+        if isinstance(data, list):
+            flat_list = []
+            for item in data:
+                if isinstance(item, list):
+                    flat_list.extend(self._normalize_list(item))
+                elif isinstance(item, str):
+                    flat_list.append(item)
+            return flat_list
+        return []
+
     def _score_primary_value(self, requirements: Dict[str, Any], 
                             candidate: Dict[str, Any]) -> float:
         """
@@ -104,8 +120,10 @@ class CatalystMatcher:
         total_requirements += 1 if required_role else 0
         
         # Check skill/technology overlap
-        required_skills = requirements.get('technology', []) + requirements.get('skills', [])
-        candidate_skills = [s.lower() for s in candidate.get('skills', [])]
+        required_skills = self._normalize_list(requirements.get('technology', [])) + \
+                         self._normalize_list(requirements.get('skills', []))
+        
+        candidate_skills = [s.lower() for s in self._normalize_list(candidate.get('skills', []))]
         
         for req_skill in required_skills:
             if isinstance(req_skill, str):
@@ -121,7 +139,7 @@ class CatalystMatcher:
         # Check industry match
         required_industry = requirements.get('industry', '')
         if required_industry:
-            candidate_interests = [i.lower() for i in candidate.get('interests', [])]
+            candidate_interests = [i.lower() for i in self._normalize_list(candidate.get('interests', []))]
             if required_industry.lower() in ' '.join(candidate_interests):
                 score += 0.2
                 hits += 1
@@ -144,10 +162,10 @@ class CatalystMatcher:
         score = 0.0
         
         # Get candidate's goals safely
-        candidate_goals = candidate.get('current_goals', [])
-        requester_skills = set(s.lower() for s in requester.get('skills', []))
-        requester_interests = set(i.lower() for i in requester.get('interests', []))
-        requester_problems_solved = set(p.lower() for p in requester.get('problems_solved', []))
+        candidate_goals = self._normalize_list(candidate.get('current_goals', []))
+        requester_skills = set(s.lower() for s in self._normalize_list(requester.get('skills', [])))
+        requester_interests = set(i.lower() for i in self._normalize_list(requester.get('interests', [])))
+        requester_problems_solved = set(p.lower() for p in self._normalize_list(requester.get('problems_solved', [])))
         
         # 1. Can requester help with candidate's goals?
         for goal in candidate_goals:
@@ -167,7 +185,7 @@ class CatalystMatcher:
         
         # 2. Skill exchange potential
         # What skills does candidate want that requester has?
-        candidate_interests_set = set(i.lower() for i in candidate.get('interests', []))
+        candidate_interests_set = set(i.lower() for i in self._normalize_list(candidate.get('interests', [])))
         skill_overlap = requester_skills & candidate_interests_set
         if skill_overlap:
             score += 0.2 * min(len(skill_overlap), 3)  # Cap at 0.6
@@ -197,7 +215,8 @@ class CatalystMatcher:
         """
         score = 0.0
         
-        required_skills = requirements.get('technology', []) + requirements.get('skills', [])
+        required_skills = self._normalize_list(requirements.get('technology', [])) + \
+                         self._normalize_list(requirements.get('skills', []))
         candidate_skill_dates = candidate.get('skill_acquisition_dates', {})
         
         # 1. Recent learning bonus (IMPROVED LOGIC)
@@ -227,8 +246,8 @@ class CatalystMatcher:
         
         # 2. Reciprocal teaching opportunity
         # Can requester teach candidate something?
-        requester_skills = set(s.lower() for s in requester.get('skills', []))
-        candidate_interests = set(i.lower() for i in candidate.get('interests', []))
+        requester_skills = set(s.lower() for s in self._normalize_list(requester.get('skills', [])))
+        candidate_interests = set(i.lower() for i in self._normalize_list(candidate.get('interests', [])))
         
         teaching_opportunities = requester_skills & candidate_interests
         if teaching_opportunities:
@@ -276,11 +295,11 @@ class CatalystMatcher:
         """
         score = 0.0
         
-        requester_industry = set(i.lower() for i in requester.get('interests', []))
-        candidate_industry = set(i.lower() for i in candidate.get('interests', []))
+        requester_industry = set(i.lower() for i in self._normalize_list(requester.get('interests', [])))
+        candidate_industry = set(i.lower() for i in self._normalize_list(candidate.get('interests', [])))
         
         # 1. Cross-pollination: Different industries but overlapping problems
-        requester_problems = set(p.lower() for p in requester.get('problems_solved', []))
+        requester_problems = set(p.lower() for p in self._normalize_list(requester.get('problems_solved', [])))
         candidate_challenges = []
         for project in candidate.get('current_projects', []):
             candidate_challenges.extend(c.lower() for c in project.get('challenges', []))
@@ -294,8 +313,8 @@ class CatalystMatcher:
                 score += 0.5  # Cross-pollination gold
         
        # 2. Complementary skill sets (1+1=3 potential)
-        requester_skills = set(s.lower() for s in requester.get('skills', []))
-        candidate_skills = set(s.lower() for s in candidate.get('skills', []))
+        requester_skills = set(s.lower() for s in self._normalize_list(requester.get('skills', [])))
+        candidate_skills = set(s.lower() for s in self._normalize_list(candidate.get('skills', [])))
         
         skill_intersection = requester_skills & candidate_skills
         skill_union = requester_skills | candidate_skills
