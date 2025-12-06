@@ -71,6 +71,26 @@ class ResponseEngine:
         - Just the raw response text. No quotes. No "Response:" prefix.
         """
 
+        # DEFENSE-IN-DEPTH: Warn if context looks like search requirements for non-search intent
+        search_related_intents = {
+            'explicit_intro_request',
+            'implicit_need',
+            'question',
+            'clarification'
+        }
+
+        if intent not in search_related_intents and conversation_context:
+            # Check if context contains search-like fields
+            search_indicators = ['role', 'technology', 'seniority', 'experience']
+            has_search_indicators = any(key in str(conversation_context).lower() for key in search_indicators)
+
+            if has_search_indicators:
+                logger.warning(
+                    f"[RESPONSE-ENGINE-WARNING] Context contains search indicators "
+                    f"({conversation_context}) but intent is '{intent}' (non-search). "
+                    f"This may cause the bot to treat search requirements as user attributes!"
+                )
+
         user_content = f"""
         INTENT: {intent}
         USER NAME: {user_name if user_name else 'Unknown'}

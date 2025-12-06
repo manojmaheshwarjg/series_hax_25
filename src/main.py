@@ -458,12 +458,31 @@ class SeriesAIFriend:
                 # Have enough info, find matches
                 return self._handle_matching_request(phone, profile)
 
+        # CRITICAL FIX: Only pass gathered_info for search-related intents
+        # For other intents (acknowledgment, feedback, etc.), gathered_info contains
+        # SEARCH REQUIREMENTS which should NOT be treated as user attributes
+        search_related_intents = {
+            'explicit_intro_request',
+            'implicit_need',
+            'question',
+            'clarification'
+        }
+
+        context_for_response = {}
+        if intent in search_related_intents and conv_context:
+            # Safe to pass - user is actively searching
+            context_for_response = conv_context.gathered_info
+            logger.debug(f"[RESPONSE-CTX] Passing search context for intent: {intent}")
+        else:
+            # Don't pass search requirements - they're not about the user!
+            logger.debug(f"[RESPONSE-CTX] Not passing search context for intent: {intent}")
+
         # Use response engine with context
         response = self.response_engine.generate_conversational_response(
             intent,
             user_name=profile.get('name'),
             entities=intent_result.entities,
-            conversation_context=conv_context.gathered_info if conv_context else {}
+            conversation_context=context_for_response
         )
 
         # Adapt tone to user's communication style
@@ -644,10 +663,15 @@ class SeriesAIFriend:
             
             self.api_client.send_message(phone, intro_message, chat_id)
             
-            # Clear last match from session
+            # Clear last match from session AND reset conversation context
             if phone in self.session_state:
                 self.session_state[phone]['last_match'] = None
-                
+
+            # CRITICAL: Clear search requirements from conversation context
+            # This prevents the bot from treating search requirements as user attributes
+            self.conversation_manager.reset_context(phone)
+            logger.info(f"[CONTEXT-CLEARED] Cleared search requirements after successful introduction")
+
             logger.info(f"[INTRO-COMPLETE] Successfully connected {phone} with {match_user['name']}")
             
         except Exception as e:
