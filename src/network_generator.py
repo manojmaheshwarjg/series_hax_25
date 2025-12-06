@@ -62,7 +62,25 @@ class NetworkGenerator:
             'Audio Engineer', 'Producer', 'Executive Producer',
             # Creative Tech
             '3D Artist', 'Animation Director', 'VFX Artist', 'Game Designer',
-            'AR/VR Developer', 'Creative Technologist'
+            'AR/VR Developer', 'Creative Technologist',
+            # Finance
+            'Investment Banker', 'Quantitative Trader', 'Venture Capitalist',
+            'CFO', 'Financial Analyst', 'Private Equity Associate', 'Accountant',
+            'Finance Manager', 'Investment Analyst', 'Portfolio Manager',
+            # Healthcare
+            'Doctor', 'Nurse Practitioner', 'Healthcare Founder', 'Clinical Researcher',
+            'Health Tech Product Manager', 'Medical Device Engineer', 'Pharmacist',
+            'Healthcare Administrator', 'Biotech Researcher',
+            # Legal
+            'Corporate Attorney', 'IP Lawyer', 'Contract Lawyer', 'General Counsel',
+            'Legal Counsel', 'Compliance Officer', 'Patent Attorney',
+            # Sales & Marketing
+            'VP Sales', 'Growth Marketer', 'Brand Strategist', 'Sales Engineer',
+            'Account Executive', 'Marketing Director', 'SEO Specialist',
+            'Demand Generation Manager', 'Customer Success Manager',
+            # Education
+            'Professor', 'EdTech Founder', 'Curriculum Designer', 'Learning Scientist',
+            'Instructional Designer', 'Education Consultant', 'Academic Advisor'
         ]
 
         self.skills = {
@@ -78,7 +96,13 @@ class NetworkGenerator:
             'motion': ['After Effects', 'Cinema 4D', 'Blender', 'Motion', 'Nuke'],
             'audio': ['Pro Tools', 'Logic Pro', 'Ableton', 'Audition', 'Reaper'],
             '3d': ['Blender', 'Maya', 'Cinema 4D', 'Houdini', 'ZBrush', 'Unreal Engine', 'Unity'],
-            'content': ['SEO', 'Content Strategy', 'Copywriting', 'Social Media', 'Analytics', 'WordPress']
+            'content': ['SEO', 'Content Strategy', 'Copywriting', 'Social Media', 'Analytics', 'WordPress'],
+            'finance': ['Excel', 'Bloomberg Terminal', 'Financial Modeling', 'Valuation', 'Due Diligence', 'Fundraising'],
+            'healthcare': ['HIPAA Compliance', 'Clinical Trials', 'EMR Systems', 'Patient Care', 'Medical Research'],
+            'legal': ['Contract Law', 'M&A', 'Patent Law', 'Corporate Law', 'Compliance', 'Negotiations'],
+            'sales': ['Salesforce', 'HubSpot', 'Pipeline Management', 'Lead Generation', 'Closing', 'Account Management'],
+            'marketing': ['Google Analytics', 'Facebook Ads', 'Content Marketing', 'Growth Hacking', 'Email Marketing', 'A/B Testing'],
+            'education': ['Curriculum Design', 'LMS', 'Pedagogy', 'Assessment', 'Educational Technology', 'Student Engagement']
         }
 
         self.interests = [
@@ -90,7 +114,9 @@ class NetworkGenerator:
 
         self.locations = [
             'San Francisco', 'New York', 'Seattle', 'Austin', 'Boston', 'Los Angeles',
-            'Chicago', 'Denver', 'Portland', 'Miami', 'Atlanta', 'Remote'
+            'Chicago', 'Denver', 'Portland', 'Miami', 'Atlanta',
+            'London', 'Berlin', 'Singapore', 'Toronto', 'Tel Aviv', 'Sydney',
+            'Remote'
         ]
 
         self.projects = [
@@ -111,7 +137,7 @@ class NetworkGenerator:
             'an analytics dashboard'
         ]
 
-    def generate_network(self, size: int = 50) -> List[Dict[str, Any]]:
+    def generate_network(self, size: int = 200) -> List[Dict[str, Any]]:
         """
         Generate a network of synthetic users
 
@@ -156,6 +182,60 @@ class NetworkGenerator:
 
         # Generate communication style
         comm_style = random.choice(['casual', 'neutral', 'formal'])
+        
+        # === CATALYST PAIRING ALGORITHM FIELDS ===
+        
+        # Current goals (1-3 goals based on role/trajectory)
+        potential_goals = [
+            'raising seed funding', 'hiring engineers', 'learning ML', 'scaling infrastructure',
+            'finding product-market fit', 'building team', 'expanding to new market',
+            'improving conversion rate', 'learning new framework', 'mentoring others',
+            'getting promoted', 'starting a company', 'consulting', 'speaking at conferences'
+        ]
+        current_goals = random.sample(potential_goals, random.randint(1, 3))
+        
+        # Skill acquisition dates (for complementarity scoring)
+        skill_acquisition_dates = {}
+        for skill in skills[:min(5, len(skills))]:  # Track acquisition for top 5 skills
+            months_ago = random.randint(1, 60)  # 1-60 months ago
+            acquisition_date = datetime.utcnow() - timedelta(days=months_ago * 30)
+            skill_acquisition_dates[skill] = acquisition_date.strftime('%Y-%m')
+        
+        # Current projects with details
+        current_projects = []
+        if project:
+            project_stages = ['idea', 'mvp', 'beta', 'launched', 'scaling']
+            project_challenges = [
+                'scaling database', 'finding PMF', 'raising capital', 'hiring talent',
+                'user acquisition', 'technical debt', 'regulatory compliance', 'competition'
+            ]
+            current_projects.append({
+                'description': project,
+                'stage': random.choice(project_stages),
+                'challenges': random.sample(project_challenges, random.randint(1, 3))
+            })
+        
+        # Career trajectory
+        years_experience = random.randint(0, 20)
+        if 'junior' in role.lower() or years_experience < 2:
+            trajectory = 'early_career'
+        elif 'senior' in role.lower() or 'lead' in role.lower() or 'manager' in role.lower():
+            trajectory = random.choice(['steady', 'experienced'])
+        elif 'cto' in role.lower() or 'founder' in role.lower():
+            trajectory = 'experienced'
+        else:
+            trajectory = random.choice(['early_career', 'rapid_growth', 'steady'])
+        
+        # Problems solved (for serendipity matching)
+        all_problems = [
+            'scaling to 1M users', 'regulatory compliance', 'team building', 'fundraising',
+            'technical architecture', 'product design', 'user retention', 'performance optimization',
+            'security implementation', 'data migration', 'API design', 'mobile deployment'
+        ]
+        problems_solved = random.sample(all_problems, random.randint(0, 4))
+        
+        # Willingness to mentor
+        willing_to_mentor = random.random() < 0.4  # 40% willing to mentor
 
         user = {
             'phone': phone,
@@ -175,6 +255,14 @@ class NetworkGenerator:
             'successful_intros_received': random.randint(0, 15),
             'created_at': (datetime.utcnow() - timedelta(days=random.randint(1, 365))).isoformat(),
             'updated_at': last_active.isoformat(),
+            # === CATALYST PAIRING FIELDS ===
+            'current_goals': current_goals,
+            'skill_acquisition_dates': skill_acquisition_dates,
+            'current_projects': current_projects,
+            'trajectory': trajectory,
+            'years_experience': years_experience,
+            'problems_solved': problems_solved,
+            'willing_to_mentor': willing_to_mentor,
         }
 
         return user
@@ -208,6 +296,18 @@ class NetworkGenerator:
             return 'content'
         elif '3d' in role_lower or 'artist' in role_lower:
             return '3d'
+        elif 'financ' in role_lower or 'banker' in role_lower or 'trader' in role_lower or 'cfo' in role_lower or 'accountant' in role_lower:
+            return 'finance'
+        elif 'health' in role_lower or 'doctor' in role_lower or 'nurse' in role_lower or 'medical' in role_lower or 'clinical' in role_lower:
+            return 'healthcare'
+        elif 'lawyer' in role_lower or 'attorney' in role_lower or 'legal' in role_lower or 'counsel' in role_lower:
+            return 'legal'
+        elif 'sales' in role_lower or 'account executive' in role_lower:
+            return 'sales'
+        elif 'market' in role_lower or 'growth' in role_lower or 'seo' in role_lower:
+            return 'marketing'
+        elif 'education' in role_lower or 'professor' in role_lower or 'teacher' in role_lower or 'curriculum' in role_lower:
+            return 'education'
         else:
             return 'other'
 
@@ -268,6 +368,30 @@ class NetworkGenerator:
         elif role_type == '3d':
             skills.extend(random.sample(self.skills['3d'], random.randint(2, 4)))
             skills.extend(['Modeling', 'Texturing', 'Lighting', 'Rendering'])
+        
+        elif role_type == 'finance':
+            skills.extend(random.sample(self.skills['finance'], random.randint(3, 5)))
+            skills.extend(['Financial Analysis', 'Risk Management'])
+        
+        elif role_type == 'healthcare':
+            skills.extend(random.sample(self.skills['healthcare'], random.randint(2, 4)))
+            skills.extend(['Patient Care', 'Medical Knowledge'])
+        
+        elif role_type == 'legal':
+            skills.extend(random.sample(self.skills['legal'], random.randint(2, 4)))
+            skills.extend(['Legal Research', 'Document Review'])
+        
+        elif role_type == 'sales':
+            skills.extend(random.sample(self.skills['sales'], random.randint(3, 5)))
+            skills.extend(['Negotiation', 'Relationship Building'])
+        
+        elif role_type == 'marketing':
+            skills.extend(random.sample(self.skills['marketing'], random.randint(3, 5)))
+            skills.extend(['Branding', 'Campaign Management'])
+        
+        elif role_type == 'education':
+            skills.extend(random.sample(self.skills['education'], random.randint(3, 5)))
+            skills.extend(['Teaching', 'Mentoring'])
 
         else:
             skills.extend(random.sample(self.skills['languages'], 2))

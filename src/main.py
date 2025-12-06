@@ -13,6 +13,9 @@ from dotenv import load_dotenv
 # Add src to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+# Add catalyst_pairing to path
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'catalyst_pairing'))
+
 from kafka_consumer import SeriesKafkaConsumer
 from api_client import SeriesAPIClient, send_message_with_typing
 from intent_classifier import IntentClassifier
@@ -20,10 +23,13 @@ from storage import user_storage, conversation_storage, intro_storage
 from nlp_engine import AdvancedNLPEngine
 from conversation_manager import ConversationManager, ConversationState
 from profile_builder import ProfileBuilder
+from catalyst_profile_enhancer import CatalystProfileEnhancer  # CATALYST FIELDS
+from catalyst_conversation_director import CatalystConversationDirector  # PROACTIVE QUESTIONS
+from vague_answer_detector import VagueAnswerDetector  # HANDLE VAGUE ANSWERS
 from response_engine import ResponseEngine
 from human_behavior import HumanBehaviorSimulator, MessageEditSimulator
 from platform_adapter import PlatformDetector, PlatformAdapter, Platform
-from matcher import Matcher
+from hybrid_matcher import HybridMatcher  # CATALYST PAIRING ALGORITHM
 from intro_manager import IntroductionManager
 from network_generator import NetworkGenerator
 from error_handler import (
@@ -58,6 +64,9 @@ class SeriesAIFriend:
         self.nlp_engine = AdvancedNLPEngine()
         self.conversation_manager = ConversationManager()
         self.profile_builder = ProfileBuilder(self.nlp_engine)
+        self.catalyst_enhancer = CatalystProfileEnhancer()  # CATALYST FIELDS
+        self.catalyst_director = CatalystConversationDirector()  # PROACTIVE QUESTIONS
+        self.vague_detector = VagueAnswerDetector()  # HANDLE VAGUE ANSWERS
         self.response_engine = ResponseEngine()
 
         # Phase 3 components
@@ -66,10 +75,10 @@ class SeriesAIFriend:
         self.platform_adapter = PlatformAdapter(self.platform_detector)
         self.message_editor = MessageEditSimulator(self.api_client, self.behavior_simulator)
 
-        # Phase 4 components
+        # Phase 4 components + CATALYST PAIRING ALGORITHM
         # Generate synthetic network for demo
         self.network = self._initialize_network()
-        self.matcher = Matcher(self.network)
+        self.matcher = HybridMatcher(self.network)  # Using Catalyst Pairing!
         self.intro_manager = IntroductionManager(
             self.api_client,
             self.platform_adapter,
@@ -243,6 +252,34 @@ class SeriesAIFriend:
             )
             if profile_updates:
                 logger.info(f"Profile updates: {profile_updates}")
+            
+            # CATALYST: Extract Catalyst fields (goals, trajectory, problems, mentorship)
+            catalyst_updates = self.catalyst_enhancer.enhance_profile(
+                profile, text, intent_result.intent
+            )
+            if catalyst_updates:
+                logger.info(f"[CATALYST] Profile enhancements: {catalyst_updates}")
+            
+            # VAGUE ANSWER DETECTION: Check if user gave a vague answer to our last question
+            if conv_context and conv_context.last_question:
+                # Get context from the question we asked
+                question_context = self.vague_detector.get_context_from_question(conv_context.last_question)
+                
+                # Check if answer is vague
+                if self.vague_detector.is_vague(text, question_context):
+                    logger.info(f"[VAGUE-ANSWER] Detected vague answer: '{text}'")
+                    
+                    # Generate quirky follow-up
+                    follow_up = self.vague_detector.generate_follow_up(
+                        text, question_context, conv_context.last_question
+                    )
+                    
+                    # Return follow-up immediately (don't proceed with normal flow)
+                    logger.info(f"[VAGUE-FOLLOW-UP] Asking: {follow_up}")
+                    return follow_up
+            
+            # Save profile if any updates were made
+            if profile_updates or catalyst_updates:
                 user_storage.update_profile(sender, profile)
             else:
                 logger.debug(f"No profile updates (likely search request, not self-description)")
@@ -504,6 +541,20 @@ class SeriesAIFriend:
             conversation_context=context_for_response
         )
 
+        # CATALYST: Check if we should ask a Catalyst question
+        # This happens BEFORE matching to collect bidirectional value data
+        conversation_turn = len(conv_context.questions_asked) if conv_context else 0
+        
+        if intent in ['explicit_intro_request', 'implicit_need']:
+            # User is requesting an intro - check if we should collect Catalyst data first
+            if self.catalyst_director.should_ask_catalyst_question(profile, conversation_turn):
+                catalyst_question = self.catalyst_director.get_next_catalyst_question(profile)
+                if catalyst_question:
+                    logger.info(f"[CATALYST-DIRECTOR] Asking: {catalyst_question}")
+                    # Acknowledge request + ask Catalyst question
+                    ack = "On it 🔍"
+                    return f"{ack}\n\n{catalyst_question}"
+
         # Adapt tone to user's communication style
         comm_style = profile.get('communication_style', 'neutral')
         response = self.response_engine.adapt_tone(response, comm_style)
@@ -577,12 +628,12 @@ class SeriesAIFriend:
                 time.sleep(0.5)
 
     def _initialize_network(self) -> List[Dict[str, Any]]:
-        """Initialize synthetic network for demo"""
+        """Initialize synthetic network for demo with Catalyst fields"""
         generator = NetworkGenerator()
-        network = generator.generate_network(50)  # Generate 50 users
+        network = generator.generate_network(200)  # 200 users for better Catalyst matching
         generator.add_network_connections(network, avg_connections=10)
 
-        logger.info(f"Initialized network with {len(network)} users")
+        logger.info(f"Initialized network with {len(network)} users (Catalyst-enhanced profiles)")
         return network
 
     @safe_execute(fallback_value="Sorry, I'm having trouble searching my network right now. Can you try again?")
@@ -608,11 +659,15 @@ class SeriesAIFriend:
             if phone in self.session_state:
                 excluded_names = self.session_state[phone].get('rejected_matches', [])
 
-            # Find matches (excluding rejected ones)
-            matches = self.matcher.find_matches(
+            # Find matches using CATALYST PAIRING ALGORITHM (excluding rejected ones)
+            matches = self.matcher.find_best_matches(
                 requirements, self.network, profile,
-                top_n=3, excluded_names=excluded_names
+                top_n=3, use_catalyst=True
             )
+            
+            # Filter out excluded names manually (HybridMatcher doesn't have excluded_names param)
+            if excluded_names:
+                matches = [m for m in matches if m.user.get('name') not in excluded_names]
 
             if not matches:
                 # No matches found
