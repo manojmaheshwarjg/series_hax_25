@@ -7,7 +7,7 @@ import logging
 import os
 import sys
 import random
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from dotenv import load_dotenv
 
 # Add src to path
@@ -21,6 +21,8 @@ from nlp_engine import AdvancedNLPEngine
 from conversation_manager import ConversationManager, ConversationState
 from profile_builder import ProfileBuilder
 from response_engine import ResponseEngine
+from human_behavior import HumanBehaviorSimulator, MessageEditSimulator
+from platform_adapter import PlatformDetector, PlatformAdapter, Platform
 
 load_dotenv()
 
@@ -50,6 +52,12 @@ class SeriesAIFriend:
         self.conversation_manager = ConversationManager()
         self.profile_builder = ProfileBuilder(self.nlp_engine)
         self.response_engine = ResponseEngine()
+
+        # Phase 3 components
+        self.behavior_simulator = HumanBehaviorSimulator()
+        self.platform_detector = PlatformDetector()
+        self.platform_adapter = PlatformAdapter(self.platform_detector)
+        self.message_editor = MessageEditSimulator(self.api_client, self.behavior_simulator)
 
         self.user_phone = os.getenv('USER_PHONE')
         self.sender_number = os.getenv('SENDER_NUMBER')
@@ -140,6 +148,17 @@ class SeriesAIFriend:
 
             logger.info(f"Message from {sender}: {text}")
 
+            # Phase 3: Detect and cache platform
+            platform = self.platform_detector.detect_platform(message_data)
+            self.platform_detector.set_platform_for_user(sender, platform)
+            logger.info(f"Platform: {platform.value}")
+
+            # Send platform notice if first time on SMS
+            if platform == Platform.SMS and sender not in self.platform_detector.user_platforms:
+                notice = self.platform_adapter.send_platform_notice(sender)
+                if notice:
+                    self.api_client.send_message(sender, notice, chat_id)
+
             # Log conversation
             conversation_storage.log_message(sender, text, 'incoming', {
                 'chat_id': chat_id,
@@ -179,14 +198,9 @@ class SeriesAIFriend:
             )
 
             if response:
-                # Send response with typing indicator
-                complexity = self._estimate_complexity(intent_result.intent)
-                send_message_with_typing(
-                    self.api_client,
-                    sender,
-                    response,
-                    complexity=complexity,
-                    chat_id=chat_id
+                # Phase 3: Send with human-like behavior
+                self._send_human_like_message(
+                    sender, response, chat_id, nlp_analysis.complexity
                 )
 
                 # Log outgoing message
@@ -200,6 +214,9 @@ class SeriesAIFriend:
                     'direction': 'outgoing',
                     'intent': intent_result.intent
                 })
+
+                # Process any pending message edits
+                self.message_editor.process_pending_edits()
 
         except Exception as e:
             logger.error(f"Error handling message: {e}", exc_info=True)
@@ -216,8 +233,15 @@ class SeriesAIFriend:
 
             logger.info(f"Reaction from {sender}: {reaction} on message {message_id}")
 
-            # For now, just log it
-            # In Phase 4, this will handle intro acceptance/rejection
+            # Phase 3: Handle reaction using platform adapter
+            result = self.platform_adapter.handle_reaction(sender, reaction, 'confirmation')
+
+            if result is not None:
+                logger.info(f"Reaction interpreted as: {result}")
+                # In Phase 4, this will handle intro acceptance/rejection
+                # For now, just acknowledge
+                ack = "Got it!" if result else "No problem!"
+                self.api_client.send_message(sender, ack)
 
         except Exception as e:
             logger.error(f"Error handling reaction: {e}", exc_info=True)
@@ -352,6 +376,55 @@ class SeriesAIFriend:
         }
 
         return complexity_map.get(intent, 2)
+
+    def _send_human_like_message(self, recipient: str, message: str, chat_id: Optional[str],
+                                  complexity: int):
+        """
+        Send message with human-like behavior (Phase 3)
+
+        Args:
+            recipient: Phone number to send to
+            message: Message text
+            chat_id: Chat ID
+            complexity: Message complexity (1-5)
+        """
+        import time
+
+        # Check if platform supports typing indicators
+        if self.platform_adapter.should_use_typing_indicator(recipient):
+            # Calculate realistic typing delay
+            typing_delay = self.behavior_simulator.calculate_typing_delay(message, complexity)
+            typing_duration_ms = int(typing_delay * 1000)
+
+            # Send typing indicator
+            self.api_client.send_typing_indicator(recipient, typing_duration_ms)
+
+            # Wait for typing delay
+            time.sleep(typing_delay)
+        else:
+            # SMS: Just a small delay
+            small_delay = self.behavior_simulator.calculate_typing_delay(message, complexity) * 0.5
+            time.sleep(min(small_delay, 3.0))
+
+        # Split message if too long for platform
+        message_parts = self.platform_adapter.split_long_message(recipient, message)
+
+        # Send message(s)
+        for part in message_parts:
+            result = self.api_client.send_message(recipient, part, chat_id)
+
+            # Schedule message edit if applicable
+            if result and 'message_id' in result:
+                self.message_editor.schedule_edit(
+                    result['message_id'],
+                    part,
+                    chat_id,
+                    recipient
+                )
+
+            # Small delay between parts
+            if len(message_parts) > 1:
+                time.sleep(0.5)
 
     def start(self):
         """Start the application"""
