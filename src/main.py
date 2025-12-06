@@ -563,7 +563,7 @@ class SeriesAIFriend:
             user_name=profile.get('name'),
             entities=intent_result.entities,
             conversation_context=context_for_response,
-            message_history=self.session_state[sender]['conversation_history']
+            message_history=self.session_state[phone]['conversation_history']
         )
 
         # CATALYST: Check if we should ask a Catalyst question
