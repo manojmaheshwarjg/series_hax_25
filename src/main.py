@@ -355,7 +355,10 @@ class SeriesAIFriend:
                         break
 
             # CRITICAL: Don't confirm if rejection just happened
-            if has_pending_match and not rejection_just_happened and any(keyword in text_lower for keyword in confirmation_keywords):
+            # FIX: If they explicitly named someone (selected_match), that counts as confirmation! 
+            has_confirmation_keyword = any(keyword in text_lower for keyword in confirmation_keywords)
+            
+            if has_pending_match and not rejection_just_happened and (selected_match or has_confirmation_keyword):
                 # Use selected match if they specified, otherwise use default
                 chosen_match = selected_match if selected_match else last_match
 

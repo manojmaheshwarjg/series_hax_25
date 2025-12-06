@@ -80,6 +80,13 @@ class IntentClassifier:
             - acknowledgment: Confirming, agreeing, saying yes/ok/sure (ESPECIALLY after match suggestions)
             - other: Anything else
 
+            ENTITY EXTRACTION RULES:
+            - "devs", "developers", "coding guys" -> role: ["Software Engineer"]
+            - "frontend guys", "FE devs" -> role: ["Frontend Engineer"]
+            - "content folks", "creators", "youtubers" -> role: ["Content Creator"]
+            - "tech" -> technology (e.g. "React", "Python") or industry if generic.
+            - "video guy" -> role: ["Videographer", "Video Editor"]
+
             Return JSON object only.
 
             Example:
@@ -88,7 +95,7 @@ class IntentClassifier:
                 "intent": "explicit_intro_request",
                 "confidence": 0.99,
                 "entities": {
-                    "role": ["dev"],
+                    "role": ["Software Engineer"],
                     "technology": ["React"],
                     "location": ["NYC"]
                 },

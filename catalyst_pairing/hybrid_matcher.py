@@ -115,9 +115,12 @@ class HybridMatcher:
         catalyst_scored.sort(key=lambda x: x.total_score, reverse=True)
         
         # Log top matches
+        # Log top matches with detailed breakdown
         logger.info(f"Top {min(top_n, len(catalyst_scored))} Catalyst matches:")
         for i, match in enumerate(catalyst_scored[:top_n]):
             logger.info(f"  {i+1}. {match.user['name']} - Score: {match.total_score:.2f}")
+            logger.info(f"     Breakdown: {match.component_scores}")
+            logger.info(f"     Explanation: {match.explanation}")
         
         return catalyst_scored[:top_n]
 

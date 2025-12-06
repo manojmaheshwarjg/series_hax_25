@@ -30,7 +30,7 @@ class CatalystProfileEnhancer:
             r"(?:learning|studying|picking up) (.+?)(?:\.|,|$)",
             r"(?:i'm|i am) (?:working on|focused on) (.+?)(?:\.|,|$)",
             r"(?:raising|seeking|finding) (.+?)(?:\.|,|$)",
-            r"(?:building|creating|launching) (.+?)(?:\.|,|$)",
+            r"(?:building|creating|launching|designing|developing|coding) (.+?)(?:\.|,|$)",
         ]
 
         # Trajectory indicators

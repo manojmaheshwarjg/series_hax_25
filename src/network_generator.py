@@ -43,19 +43,22 @@ class NetworkGenerator:
         ]
 
         self.roles = [
-            # Engineering
+            # Engineering & Tech
             'Software Engineer', 'Senior Software Engineer', 'Staff Engineer',
             'Engineering Manager', 'Backend Engineer', 'Frontend Engineer',
             'Full Stack Engineer', 'Mobile Engineer', 'DevOps Engineer',
             'ML Engineer', 'Data Engineer', 'Technical Lead', 'CTO',
-            # Product & Design
+            'DevRel', 'Solutions Architect', 'Indie Hacker',
+            # Product, Design & Founders
             'Product Manager', 'Senior Product Manager', 'Product Designer',
             'UX Designer', 'UI Designer', 'UX Researcher', 'Design Lead',
             'Creative Director', 'Brand Designer', 'Graphic Designer',
+            'Founder', 'Co-Founder', 'Solo Founder', 'Bootstrapper',
             # Content & Media
             'Content Creator', 'Video Editor', 'Motion Graphics Designer',
             'Video Producer', 'Content Strategist', 'Social Media Manager',
             'Copywriter', 'Technical Writer', 'Content Marketing Manager',
+            'YouTuber', 'Podcaster', 'Streamer', 'Newsletter Writer',
             # Video Production
             'Cinematographer', 'Director of Photography', 'Video Director',
             'Post-Production Supervisor', 'Color Grader', 'Sound Designer',
@@ -63,10 +66,10 @@ class NetworkGenerator:
             # Creative Tech
             '3D Artist', 'Animation Director', 'VFX Artist', 'Game Designer',
             'AR/VR Developer', 'Creative Technologist',
-            # Finance
+            # Finance & VC
             'Investment Banker', 'Quantitative Trader', 'Venture Capitalist',
             'CFO', 'Financial Analyst', 'Private Equity Associate', 'Accountant',
-            'Finance Manager', 'Investment Analyst', 'Portfolio Manager',
+            'Finance Manager', 'Investment Analyst', 'Portfolio Manager', 'Angel Investor',
             # Healthcare
             'Doctor', 'Nurse Practitioner', 'Healthcare Founder', 'Clinical Researcher',
             'Health Tech Product Manager', 'Medical Device Engineer', 'Pharmacist',
@@ -84,24 +87,24 @@ class NetworkGenerator:
         ]
 
         self.skills = {
-            'languages': ['Python', 'JavaScript', 'TypeScript', 'Java', 'Go', 'Rust', 'C++', 'Ruby', 'PHP', 'Swift', 'Kotlin'],
-            'frameworks': ['React', 'Vue', 'Angular', 'Next.js', 'Django', 'Flask', 'FastAPI', 'Express', 'Rails', 'Spring'],
-            'cloud': ['AWS', 'GCP', 'Azure', 'Heroku', 'Vercel', 'Netlify'],
-            'databases': ['PostgreSQL', 'MySQL', 'MongoDB', 'Redis', 'DynamoDB', 'Cassandra'],
-            'tools': ['Docker', 'Kubernetes', 'Git', 'Jenkins', 'Terraform', 'Ansible'],
-            'ml': ['TensorFlow', 'PyTorch', 'scikit-learn', 'Keras', 'XGBoost'],
-            'mobile': ['React Native', 'Flutter', 'iOS', 'Android'],
-            'design': ['Figma', 'Sketch', 'Adobe XD', 'Photoshop', 'Illustrator', 'InDesign', 'Framer'],
-            'video': ['Premiere Pro', 'Final Cut Pro', 'DaVinci Resolve', 'After Effects', 'Avid Media Composer'],
-            'motion': ['After Effects', 'Cinema 4D', 'Blender', 'Motion', 'Nuke'],
+            'languages': ['Python', 'JavaScript', 'TypeScript', 'Java', 'Go', 'Rust', 'C++', 'Ruby', 'PHP', 'Swift', 'Kotlin', 'Solidity'],
+            'frameworks': ['React', 'Vue', 'Next.js', 'Django', 'FastAPI', 'Express', 'Rails', 'Spring', 'Svelte', 'Remix', 'TailwindCSS'],
+            'cloud': ['AWS', 'GCP', 'Azure', 'Vercel', 'Netlify', 'Supabase', 'Firebase', 'Cloudflare'],
+            'databases': ['PostgreSQL', 'MySQL', 'MongoDB', 'Redis', 'DynamoDB', 'Cassandra', 'PlanetScale'],
+            'tools': ['Docker', 'Kubernetes', 'Git', 'Terraform', 'Ansible', 'Cursor', 'Linear', 'Notion'],
+            'ml': ['TensorFlow', 'PyTorch', 'scikit-learn', 'HuggingFace', 'OpenAI API', 'LangChain', 'LlamaIndex'],
+            'mobile': ['React Native', 'Flutter', 'iOS', 'Android', 'SwiftUI'],
+            'design': ['Figma', 'Sketch', 'Adobe XD', 'Photoshop', 'Illustrator', 'Spline', 'Rive'],
+            'video': ['Premiere Pro', 'Final Cut Pro', 'DaVinci Resolve', 'After Effects', 'CapCut', 'Descript'],
+            'motion': ['After Effects', 'Cinema 4D', 'Blender', 'Motion', 'Nuke', 'Unreal Engine'],
             'audio': ['Pro Tools', 'Logic Pro', 'Ableton', 'Audition', 'Reaper'],
-            '3d': ['Blender', 'Maya', 'Cinema 4D', 'Houdini', 'ZBrush', 'Unreal Engine', 'Unity'],
-            'content': ['SEO', 'Content Strategy', 'Copywriting', 'Social Media', 'Analytics', 'WordPress'],
-            'finance': ['Excel', 'Bloomberg Terminal', 'Financial Modeling', 'Valuation', 'Due Diligence', 'Fundraising'],
+            '3d': ['Blender', 'Maya', 'Cinema 4D', 'Houdini', 'ZBrush', 'Unreal Engine', 'Unity', 'Spline'],
+            'content': ['SEO', 'Content Strategy', 'Copywriting', 'Social Media', 'Analytics', 'Substack', 'Ghost'],
+            'finance': ['Excel', 'Bloomberg Terminal', 'Financial Modeling', 'Valuation', 'Due Diligence', 'Fundraising', 'Stripe'],
             'healthcare': ['HIPAA Compliance', 'Clinical Trials', 'EMR Systems', 'Patient Care', 'Medical Research'],
             'legal': ['Contract Law', 'M&A', 'Patent Law', 'Corporate Law', 'Compliance', 'Negotiations'],
-            'sales': ['Salesforce', 'HubSpot', 'Pipeline Management', 'Lead Generation', 'Closing', 'Account Management'],
-            'marketing': ['Google Analytics', 'Facebook Ads', 'Content Marketing', 'Growth Hacking', 'Email Marketing', 'A/B Testing'],
+            'sales': ['Salesforce', 'HubSpot', 'Pipeline Management', 'Lead Generation', 'Closing', 'Apollo.io'],
+            'marketing': ['Google Analytics', 'Facebook Ads', 'Content Marketing', 'Growth Hacking', 'Email Marketing', 'A/B Testing', 'TikTok Ads'],
             'education': ['Curriculum Design', 'LMS', 'Pedagogy', 'Assessment', 'Educational Technology', 'Student Engagement']
         }
 
