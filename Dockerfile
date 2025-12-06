@@ -21,9 +21,8 @@ RUN python -m spacy download en_core_web_sm
 
 # Copy application code
 COPY src/ ./src/
-COPY data/ ./data/
 
-# Create data directory if it doesn't exist
+# Create data directory
 RUN mkdir -p /app/data
 
 # Set environment variables
