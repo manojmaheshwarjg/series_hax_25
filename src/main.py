@@ -269,6 +269,12 @@ class SeriesAIFriend:
                 logger.debug("Ignoring our own message")
                 return
 
+            # DEMO WHITELIST: Only accept messages from authorized user
+            ALLOWED_PHONE = "+17167509384"
+            if sender != ALLOWED_PHONE:
+                logger.warning(f"Blocked message from unauthorized number: {sender}")
+                return
+
             logger.info(f"Message from {sender}: {text}")
 
             # Phase 3: Detect and cache platform
