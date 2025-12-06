@@ -384,7 +384,8 @@ class SeriesAIFriend:
             if all_matches:
                 for match in all_matches:
                     match_first_name = match['name'].split()[0].lower()
-                    if match_first_name in text_lower:
+                    # Fuzzy matching: check if name is in text OR if text contains name (handles typos)
+                    if match_first_name in text_lower or any(word.lower().startswith(match_first_name[:4]) for word in text.split()):
                         selected_match = match
                         logger.info(f"[MATCH-SELECTION] User selected: {match['name']}")
                         break
@@ -798,7 +799,7 @@ class SeriesAIFriend:
                     if catalyst_question:
                         logger.info(f"[CATALYST-DIRECTOR] Asking: {catalyst_question}")
                         # Acknowledge request + ask Catalyst question
-                        ack = "On it 🔍"
+                        ack = "Finding matches..."
                         response = f"{ack}\n\n{catalyst_question}"
                         
                         # Update state so we know we asked
@@ -853,7 +854,7 @@ class SeriesAIFriend:
                 if catalyst_question:
                     logger.info(f"[CATALYST-DIRECTOR] Asking: {catalyst_question}")
                     # Acknowledge request + ask Catalyst question
-                    ack = "On it 🔍"
+                    ack = "Searching..."
                     response = f"{ack}\n\n{catalyst_question}"
 
                     # Update state so we know we asked
