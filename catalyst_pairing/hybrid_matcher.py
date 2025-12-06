@@ -80,7 +80,7 @@ class HybridMatcher:
             try:
                 total_score, component_scores, explanation = \
                     self.catalyst_matcher.calculate_catalyst_score(
-                        requester, candidate, requirements
+                        requester, candidate, requirements, network=network  # NEW: Pass network
                     )
                 
                 # Combine traditional and catalyst scores (70% catalyst, 30% traditional)

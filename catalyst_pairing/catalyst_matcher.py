@@ -49,7 +49,8 @@ class CatalystMatcher:
 
     def calculate_catalyst_score(self, requester: Dict[str, Any], 
                                  candidate: Dict[str, Any],
-                                 requirements: Dict[str, Any]) -> Tuple[float, Dict[str, float], str]:
+                                 requirements: Dict[str, Any],
+                                 network: List[Dict[str, Any]] = None) -> Tuple[float, Dict[str, float], str]:
         """
         Calculate comprehensive catalyst score
         
@@ -57,11 +58,13 @@ class CatalystMatcher:
             requester: The person requesting intro
             candidate: Potential match
             requirements: What requester is looking for
+            network: Full network for network effects analysis (optional)
             
         Returns:
             Tuple of (total_score, component_scores, explanation)
         """
         scores = {}
+        extra_details = {}  # Store details from new algorithms
         
         # 1. Primary Value: Can candidate help requester?
         scores['primary_value'] = self._score_primary_value(requirements, candidate)
@@ -78,11 +81,25 @@ class CatalystMatcher:
         # 5. Serendipity: Breakthrough potential
         scores['serendipity'] = self._score_serendipity(requester, candidate)
         
-        # Calculate weighted total
-        total_score = sum(scores[key] * self.weights[key] for key in scores)
+        # 6. NEW: Complementary Weaknesses - Bidirectional learning
+        weakness_score, weakness_details = self._score_complementary_weaknesses(requester, candidate)
+        scores['complementary_weaknesses'] = weakness_score
+        extra_details['weaknesses'] = weakness_details
         
-        # Generate explanation
-        explanation = self._generate_explanation(requester, candidate, scores)
+        # 7. NEW: Network Effects - Second-degree connections
+        if network:
+            network_score, valuable_conns = self._score_network_effects(requester, candidate, network)
+            scores['network_effects'] = network_score
+            extra_details['network'] = valuable_conns
+        else:
+            scores['network_effects'] = 0.0
+            extra_details['network'] = []
+        
+        # Calculate weighted total with new components
+        total_score = sum(scores[key] * self.weights.get(key, 0.1) for key in scores)
+        
+        # Generate explanation (enhanced with new details)
+        explanation = self._generate_explanation(requester, candidate, scores, extra_details)
         
         return total_score, scores, explanation
 
@@ -360,10 +377,110 @@ class CatalystMatcher:
                 score += 0.2
         
         return min(score, 1.0)
+    
+    def _score_complementary_weaknesses(self, requester: Dict[str, Any], 
+                                        candidate: Dict[str, Any]) -> Tuple[float, Dict[str, List[str]]]:
+        """
+        Score bidirectional learning potential - match skill gaps with strengths
+        
+        Core Algorithm:
+        - Interests = what you want to learn (weaknesses)
+        - Skills = what you know (strengths)
+        - Perfect match: My weakness = Your strength AND Your weakness = My strength
+        """
+        score = 0.0
+        details = {'requester_learns': [], 'candidate_learns': []}
+        
+        # Normalize data
+        req_interests = set(i.lower() for i in self._normalize_list(requester.get('interests', [])) if isinstance(i, str))
+        req_skills = set(s.lower() for s in self._normalize_list(requester.get('skills', [])) if isinstance(s, str))
+        
+        cand_interests = set(i.lower() for i in self._normalize_list(candidate.get('interests', [])) if isinstance(i, str))
+        cand_skills = set(s.lower() for s in self._normalize_list(candidate.get('skills', [])) if isinstance(s, str))
+        
+        # What requester wants to learn (interests) vs what candidate knows (skills)
+        requester_can_learn = req_interests & cand_skills
+        
+        # What candidate wants to learn (interests) vs what requester knows (skills)
+        candidate_can_learn = cand_interests & req_skills
+        
+        # Bidirectional learning = high value
+        if requester_can_learn and candidate_can_learn:
+            score += 0.6  # Strong bidirectional learning potential
+            details['requester_learns'] = list(requester_can_learn)[:3]
+            details['candidate_learns'] = list(candidate_can_learn)[:3]
+        elif requester_can_learn:
+            score += 0.3  # One-way learning
+            details['requester_learns'] = list(requester_can_learn)[:3]
+        elif candidate_can_learn:
+            score += 0.3  # One-way learning (reciprocal)
+            details['candidate_learns'] = list(candidate_can_learn)[:3]
+        
+        return min(score, 1.0), details
+    
+    def _score_network_effects(self, requester: Dict[str, Any], 
+                               candidate: Dict[str, Any],
+                               network: List[Dict[str, Any]]) -> Tuple[float, List[str]]:
+        """
+        Score candidate's connections that can help requester
+        
+        Core Algorithm:
+        - Analyze candidate's connections (graph traversal)
+        - Check if connections have skills/roles requester needs
+        - "Not only can Alex help you, but Alex knows 3 VCs you need to meet"
+        """
+        score = 0.0
+        valuable_connections = []
+        
+        if not network:
+            return 0.0, []
+        
+        # Get requester's goals and interests
+        req_interests = set(i.lower() for i in self._normalize_list(requester.get('interests', [])) if isinstance(i, str))
+        req_goals = [g.lower() for g in self._normalize_list(requester.get('current_goals', [])) if isinstance(g, str)]
+        
+        # Analyze candidate's connections (limit to top 10 for performance)
+        candidate_connections = candidate.get('connections', [])[:10]
+        
+        for conn_phone in candidate_connections:
+            # Find connection in network
+            connection = next((user for user in network if user.get('phone') == conn_phone), None)
+            if not connection:
+                continue
+            
+            # Check if this connection has valuable skills/role
+            conn_role = connection.get('role', '').lower()
+            conn_skills = set(s.lower() for s in self._normalize_list(connection.get('skills', [])) if isinstance(s, str))
+            
+            # Match against requester's interests
+            is_valuable = False
+            
+            # Check role match
+            for interest in req_interests:
+                if interest in conn_role or any(interest in skill for skill in conn_skills):
+                    is_valuable = True
+                    break
+            
+            # Check goal match (e.g., "fundraising" goal matches "investor" role)
+            for goal in req_goals:
+                if ('fundraising' in goal or 'raising' in goal) and ('investor' in conn_role or 'vc' in conn_role):
+                    is_valuable = True
+                    break
+                if 'hiring' in goal and ('recruiter' in conn_role or 'hr' in conn_role):
+                    is_valuable = True
+                    break
+            
+            if is_valuable:
+                valuable_connections.append(connection.get('name', 'Unknown'))
+                score += 0.15  # Each valuable connection adds value
+        
+        return min(score, 0.6), valuable_connections[:5]  # Cap at 0.6, show top 5
+
 
     def _generate_explanation(self, requester: Dict[str, Any],
                              candidate: Dict[str, Any],
-                             scores: Dict[str, float]) -> str:
+                             scores: Dict[str, float],
+                             extra_details: Dict[str, Any] = None) -> str:
         """Generate human-readable explanation of the catalyst match"""
         
         reasons = []
