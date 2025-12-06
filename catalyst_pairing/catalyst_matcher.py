@@ -540,11 +540,11 @@ class CatalystMatcher:
             
             # Convert total information to multiplier
             # Using exponential function for non-linear boost to rare combinations
-            # Divide by 10 to normalize (average skill has ~3-4 bits)
-            scarcity_multiplier = math.exp(total_information / 20)
+            # Divide by 40 to normalize (tuned down to prevent over-boosting)
+            scarcity_multiplier = math.exp(total_information / 40)
             
             # Cap multiplier to prevent extreme values
-            scarcity_multiplier = min(scarcity_multiplier, 2.5)
+            scarcity_multiplier = min(scarcity_multiplier, 1.8)  # Reduced cap from 2.5 to 1.8
             
             return scarcity_multiplier, skill_info
             
