@@ -40,12 +40,14 @@ class ResponseEngine:
 
     def generate_conversational_response(self, intent: str, user_name: Optional[str] = None,
                                        entities: Dict[str, List[str]] = None,
-                                       conversation_context: Dict[str, Any] = None) -> str:
+                                       conversation_context: Dict[str, Any] = None,
+                                       message_history: List[Dict[str, str]] = None) -> str:
         """
         Generate a conversational response with context awareness via LLM
         """
         entities = entities or {}
         conversation_context = conversation_context or {}
+        message_history = message_history or []
         
         # Construct the prompt with enhanced personality
         system_prompt = f"""
@@ -107,6 +109,17 @@ Generate a natural, context-aware response that matches the persona.
 If their last answer was vague, playfully ask for more detail.
 """
 
+        # Build messages list with history
+        messages = [
+            {
+                "role": "system",
+                "content": system_prompt
+            }
+        ]
+        
+        # Add history (last 5 messages)
+        if message_history:
+            messages.extend(message_history[-5:])
 
         user_content = f"""
         INTENT: {intent}
@@ -114,19 +127,15 @@ If their last answer was vague, playfully ask for more detail.
         ENTITIES DETECTED: {entities}
         CONTEXT: {conversation_context}
         """
+        
+        messages.append({
+            "role": "user",
+            "content": user_content
+        })
 
         try:
             chat_completion = self.client.chat.completions.create(
-                messages=[
-                    {
-                        "role": "system",
-                        "content": system_prompt
-                    },
-                    {
-                        "role": "user",
-                        "content": user_content
-                    }
-                ],
+                messages=messages,
                 model=self.model,
                 temperature=0.7, # Higher temperature for variation
                 max_tokens=150
