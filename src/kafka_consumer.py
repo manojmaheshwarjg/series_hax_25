@@ -120,7 +120,12 @@ class SeriesKafkaConsumer:
         logger.info("Starting Kafka consumer loop...")
 
         try:
+            poll_count = 0
             while self.running:
+                poll_count += 1
+                if poll_count % 10 == 0:
+                    logger.info(f"Consumer still polling... (count: {poll_count})")
+
                 msg = self.consumer.poll(1.0)
                 if msg is None:
                     continue
@@ -136,7 +141,9 @@ class SeriesKafkaConsumer:
                     if not payload:
                         continue
                     event_data = json.loads(payload.decode('utf-8')) if isinstance(payload, (bytes, bytearray)) else payload
+                    logger.info(f"About to process event...")
                     self.process_event(event_data)
+                    logger.info(f"Finished processing event, continuing to poll...")
                 except Exception as e:
                     logger.error(f"Error processing message: {e}", exc_info=True)
         except KeyboardInterrupt:
