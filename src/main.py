@@ -379,9 +379,17 @@ class SeriesAIFriend:
                 self._send_message(sender, response)
                 return
 
+            # CHECK: Is this a details/information request? (NOT a confirmation)
+            details_keywords = ['details', 'more about', 'tell me about', 'what about', 'info', 'information', 
+                               'who is', 'describe', 'explain', 'background', 'experience', 'more details']
+            is_details_request = any(keyword in text_lower for keyword in details_keywords)
+            
+            if is_details_request:
+                logger.info(f"[DETAILS-REQUEST] User asking for details, NOT confirming: '{text}'")
+            
             # CHECK: Did they mention a specific person's name from the matches?
             selected_match = None
-            if all_matches:
+            if all_matches and not is_details_request:
                 for match in all_matches:
                     match_first_name = match['name'].split()[0].lower()
                     # Fuzzy matching: check if name is in text OR if text contains name (handles typos)
@@ -394,7 +402,7 @@ class SeriesAIFriend:
             # FIX: If they explicitly named someone (selected_match), that counts as confirmation! 
             has_confirmation_keyword = any(keyword in text_lower for keyword in confirmation_keywords)
             
-            if has_pending_match and not rejection_just_happened and (selected_match or has_confirmation_keyword):
+            if has_pending_match and not rejection_just_happened and not is_details_request and (selected_match or has_confirmation_keyword):
                 # Use selected match if they specified, otherwise use default
                 chosen_match = selected_match if selected_match else last_match
 
