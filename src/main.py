@@ -17,6 +17,10 @@ from kafka_consumer import SeriesKafkaConsumer
 from api_client import SeriesAPIClient, send_message_with_typing
 from intent_classifier import IntentClassifier
 from storage import user_storage, conversation_storage, intro_storage
+from nlp_engine import AdvancedNLPEngine
+from conversation_manager import ConversationManager, ConversationState
+from profile_builder import ProfileBuilder
+from response_engine import ResponseEngine
 
 load_dotenv()
 
@@ -41,10 +45,16 @@ class SeriesAIFriend:
         self.intent_classifier = IntentClassifier()
         self.consumer = SeriesKafkaConsumer()
 
+        # Phase 2 components
+        self.nlp_engine = AdvancedNLPEngine()
+        self.conversation_manager = ConversationManager()
+        self.profile_builder = ProfileBuilder(self.nlp_engine)
+        self.response_engine = ResponseEngine()
+
         self.user_phone = os.getenv('USER_PHONE')
         self.sender_number = os.getenv('SENDER_NUMBER')
 
-        # Response templates
+        # Legacy response templates (keeping for backward compatibility)
         self.response_templates = {
             'greeting': [
                 "Hey! How can I help you today?",
@@ -144,15 +154,29 @@ class SeriesAIFriend:
                 'timestamp': event.get('timestamp')
             })
 
+            # Phase 2: Advanced NLP Analysis
+            nlp_analysis = self.nlp_engine.analyze(text)
+            logger.info(f"NLP: sentiment={nlp_analysis.sentiment_label}, topics={nlp_analysis.topics}")
+
             # Classify intent
             intent_result = self.intent_classifier.classify(text)
             logger.info(f"Intent: {intent_result.intent} (confidence: {intent_result.confidence:.2f})")
 
-            # Update profile based on extracted entities
-            self._update_profile_from_entities(sender, intent_result)
+            # Phase 2: Update profile using profile builder
+            profile_updates = self.profile_builder.update_profile_from_message(
+                profile, text, intent_result.entities, nlp_analysis
+            )
+            if profile_updates:
+                logger.info(f"Profile updates: {profile_updates}")
+                user_storage.update_profile(sender, profile)
 
-            # Generate response
-            response = self._generate_response(sender, text, intent_result, profile)
+            # Get conversation context
+            conv_context = self.conversation_manager.get_or_create_context(sender)
+
+            # Phase 2: Generate intelligent response
+            response = self._generate_intelligent_response(
+                sender, text, intent_result, nlp_analysis, profile, conv_context
+            )
 
             if response:
                 # Send response with typing indicator
@@ -229,17 +253,86 @@ class SeriesAIFriend:
             )
             # This will be used in Phase 4 for matching
 
-    def _generate_response(self, phone: str, text: str, intent_result, profile: Dict) -> str:
-        """Generate appropriate response based on intent"""
+    def _generate_intelligent_response(self, phone: str, text: str, intent_result,
+                                       nlp_analysis, profile: Dict, conv_context) -> str:
+        """
+        Generate intelligent, context-aware response using Phase 2 components
 
+        Args:
+            phone: User's phone number
+            text: User's message
+            intent_result: Intent classification result
+            nlp_analysis: Advanced NLP analysis
+            profile: User profile
+            conv_context: Conversation context
+
+        Returns:
+            Generated response
+        """
         intent = intent_result.intent
 
-        # Get base response template
-        response = self.get_response_template(intent)
+        # Check if user is answering a question
+        if self.conversation_manager.is_answering_question(phone):
+            answer = self.conversation_manager.extract_answer_to_question(
+                phone, text, intent_result.entities
+            )
+            if answer:
+                # Store the answer
+                for key, value in answer.items():
+                    self.conversation_manager.add_gathered_info(phone, key, value)
 
-        # Personalize if we know their name
-        if profile.get('name') and random.random() < 0.3:  # 30% of the time
-            response = f"{profile['name']}, {response.lower()}"
+                # Check if we have enough info
+                if self.conversation_manager.has_sufficient_info(phone):
+                    summary = self.conversation_manager.get_conversation_summary(phone)
+                    return self.response_engine.generate_response(
+                        'explicit_intro_request',
+                        {'summary': summary}
+                    )
+                else:
+                    # Ask another question
+                    next_question = self.conversation_manager.get_next_question(
+                        phone, intent_result.entities
+                    )
+                    if next_question:
+                        self.conversation_manager.update_state(
+                            phone, ConversationState.CLARIFYING_REQUIREMENTS
+                        )
+                        return self.response_engine.generate_response(
+                            'clarification_request',
+                            {'question': next_question}
+                        )
+
+        # Handle intro requests with progressive disclosure
+        if intent in ['explicit_intro_request', 'implicit_need']:
+            # Add to conversation context
+            for entity_type, values in intent_result.entities.items():
+                for value in values:
+                    self.conversation_manager.add_gathered_info(phone, entity_type, value)
+
+            # Check if we need more info
+            if self.conversation_manager.needs_clarification(phone, intent_result.entities):
+                next_question = self.conversation_manager.get_next_question(
+                    phone, intent_result.entities
+                )
+                if next_question:
+                    self.conversation_manager.update_state(
+                        phone, ConversationState.GATHERING_NEED
+                    )
+                    # Acknowledge first, then ask
+                    ack = self.response_engine.generate_response('explicit_intro_request')
+                    return f"{ack}\n\n{next_question}"
+
+        # Use response engine with context
+        response = self.response_engine.generate_conversational_response(
+            intent,
+            user_name=profile.get('name'),
+            entities=intent_result.entities,
+            conversation_context=conv_context.gathered_info if conv_context else {}
+        )
+
+        # Adapt tone to user's communication style
+        comm_style = profile.get('communication_style', 'neutral')
+        response = self.response_engine.adapt_tone(response, comm_style)
 
         return response
 
