@@ -205,6 +205,82 @@ If their last answer was vague, playfully ask for more detail.
         except Exception:
             return response
 
+    def check_vagueness(self, question: str, answer: str) -> Dict[str, Any]:
+        """
+        Check if an answer is vague using LLM and generate a follow-up if so.
+        """
+        try:
+            prompt = f"""
+            Analyze this Q&A pair. Determine if the answer is too vague, evasive, or short to be useful for a professional profile.
+            
+            CONTEXT:
+            Question Asked: "{question}"
+            User Answer: "{answer}"
+            
+            CRITERIA FOR VAGUE:
+            - One word answers that aren't Yes/No (e.g. "stuff", "things")
+            - Evasive answers ("idk", "maybe")
+            - Answers that don't actually answer the specific question
+            - EXCEPTION: Short but specific answers (e.g. "Product design", "React developer", "NYC") are NOT vague.
+            - EXCEPTION: "Yes", "No", "Sure" are NOT vague.
+            
+            Return a JSON object with:
+            - is_vague: boolean
+            - reason: string (why it's vague)
+            - follow_up: string (a concise, culturally aware follow-up question to get more detail, if vague. If not vague, empty string.)
+            
+            JSON ONLY. NO MARKDOWN.
+            """
+
+            chat_completion = self.client.chat.completions.create(
+                messages=[{"role": "user", "content": prompt}],
+                model=self.model,
+                temperature=0.0, # Low temp for logic
+                response_format={"type": "json_object"}
+            )
+            
+            import json
+            return json.loads(chat_completion.choices[0].message.content)
+            
+        except Exception as e:
+            logger.error(f"Error checking vagueness: {e}")
+            # Fallback to safe default
+            return {"is_vague": False, "reason": "error", "follow_up": ""}
+
+    def generate_contextual_catalyst_question(self, profile: Dict[str, Any], missing_field: str) -> str:
+        """
+        Generate a highly contextual Catalyst question based on what we already know.
+        """
+        try:
+            prompt = f"""
+            Generate a concise, natural question to ask this user to fill in their missing profile field: '{missing_field}'.
+            
+            USER PROFILE SO FAR:
+            {profile}
+            
+            MISSING FIELD: {missing_field}
+            
+            GUIDELINES:
+            - Use the existing profile info to make it contextual! 
+            - Example: If they know React, asking about 'current_goals' -> "What are you building with React these days?"
+            - Keep it short (text message style).
+            - No "Hello" or "Greetings". Just the question.
+            
+            QUESTION:
+            """
+            
+            chat_completion = self.client.chat.completions.create(
+                messages=[{"role": "user", "content": prompt}],
+                model=self.model,
+                temperature=0.7
+            )
+            
+            return chat_completion.choices[0].message.content.strip()
+            
+        except Exception as e:
+            logger.error(f"Error generating catalyst question: {e}")
+            return None
+
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     
@@ -217,14 +293,14 @@ if __name__ == "__main__":
 
     print("Testing Groq Response Engine...\n")
     
-    contexts = [
-        ('explicit_intro_request', {'role': ['investor'], 'industry': ['AI']}),
-        ('implicit_need', {'problem': 'struggling with React performance'}),
-        ('feedback_positive', {}),
-    ]
+    # Test Vagueness
+    print("--- Vagueness Test ---")
+    print(engine.check_vagueness("What do you do?", "stuff"))
+    print(engine.check_vagueness("What do you do?", "Product design"))
+    
+    # Test Catalyst Generation
+    print("\n--- Catalyst Test ---")
+    profile = {'skills': ['React', 'Python'], 'name': 'Manoj'}
+    print(engine.generate_contextual_catalyst_question(profile, 'current_goals'))
 
-    for intent, entities in contexts:
-        print(f"Intent: {intent}, Entities: {entities}")
-        resp = engine.generate_conversational_response(intent, user_name="Manoj", entities=entities)
-        print(f"Response: {resp}\n")
 

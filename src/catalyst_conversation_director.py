@@ -21,7 +21,9 @@ class CatalystConversationDirector:
     - Anti-robot
     """
 
-    def __init__(self):
+    def __init__(self, response_engine=None):
+        self.response_engine = response_engine
+        
         # Catalyst data priorities (what to collect first)
         self.collection_priority = [
             'current_goals',
@@ -31,7 +33,7 @@ class CatalystConversationDirector:
             'skill_acquisition_dates'
         ]
 
-        # Natural questions for each Catalyst field
+        # Natural questions for each Catalyst field (FALLBACKS)
         self.catalyst_questions = {
             'current_goals': [
                 "What are you working towards right now?",
@@ -108,14 +110,7 @@ class CatalystConversationDirector:
     def get_next_catalyst_question(self, profile: Dict[str, Any],
                                   last_user_message: str = "") -> Optional[str]:
         """
-        Get the next Catalyst question to ask
-        
-        Args:
-            profile: User profile
-            last_user_message: User's last message (for context)
-            
-        Returns:
-            Question to ask, or None
+        Get the next Catalyst question to ask (using LLM if available)
         """
         missing_fields = self._get_missing_catalyst_fields(profile)
         
@@ -125,20 +120,29 @@ class CatalystConversationDirector:
         # Pick highest priority missing field
         for field in self.collection_priority:
             if field in missing_fields:
-                # Get a question for this field
+                
+                # TRY LLM GENERATION FIRST
+                if self.response_engine:
+                    question = self.response_engine.generate_contextual_catalyst_question(profile, field)
+                    if question:
+                        self._track_question(profile, field)
+                        return question
+
+                # FALLBACK TO TEMPLATES
                 questions = self.catalyst_questions.get(field, [])
                 if questions:
                     question = random.choice(questions)
-                    
-                    # Track that we asked this
-                    if '_catalyst_questions_asked' not in profile:
-                        profile['_catalyst_questions_asked'] = 0
-                    profile['_catalyst_questions_asked'] += 1
-                    
-                    logger.info(f"[CATALYST-Q] Asking about: {field}")
+                    self._track_question(profile, field)
                     return question
 
         return None
+
+    def _track_question(self, profile: Dict[str, Any], field: str):
+        """Track that we asked a question"""
+        if '_catalyst_questions_asked' not in profile:
+            profile['_catalyst_questions_asked'] = 0
+        profile['_catalyst_questions_asked'] += 1
+        logger.info(f"[CATALYST-Q] Asking about: {field}")
 
     def generate_onboarding_flow(self, profile: Dict[str, Any]) -> List[str]:
         """

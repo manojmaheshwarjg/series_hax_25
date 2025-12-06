@@ -65,9 +65,9 @@ class SeriesAIFriend:
         self.conversation_manager = ConversationManager()
         self.profile_builder = ProfileBuilder(self.nlp_engine)
         self.catalyst_enhancer = CatalystProfileEnhancer()  # CATALYST FIELDS
-        self.catalyst_director = CatalystConversationDirector()  # PROACTIVE QUESTIONS
-        self.vague_detector = VagueAnswerDetector()  # HANDLE VAGUE ANSWERS
-        self.response_engine = ResponseEngine()
+        self.response_engine = ResponseEngine() # Moved up
+        self.catalyst_director = CatalystConversationDirector(self.response_engine)  # PROACTIVE QUESTIONS (LLM)
+        self.vague_detector = VagueAnswerDetector(self.response_engine)  # HANDLE VAGUE ANSWERS (LLM)
 
         # Phase 3 components
         self.behavior_simulator = HumanBehaviorSimulator()
@@ -272,10 +272,10 @@ class SeriesAIFriend:
                 question_context = self.vague_detector.get_context_from_question(conv_context.last_question)
                 
                 # Check if answer is vague
-                if self.vague_detector.is_vague(text, question_context):
+                if self.vague_detector.is_vague(text, question_context, question=conv_context.last_question):
                     logger.info(f"[VAGUE-ANSWER] Detected vague answer: '{text}'")
                     
-                    # Generate quirky follow-up
+                    # Generate quirky follow-up (now fetched from detector's cached result)
                     follow_up = self.vague_detector.generate_follow_up(
                         text, question_context, conv_context.last_question
                     )
