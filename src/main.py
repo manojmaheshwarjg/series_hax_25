@@ -7,7 +7,7 @@ import logging
 import os
 import sys
 import random
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from dotenv import load_dotenv
 
 # Add src to path
@@ -23,6 +23,9 @@ from profile_builder import ProfileBuilder
 from response_engine import ResponseEngine
 from human_behavior import HumanBehaviorSimulator, MessageEditSimulator
 from platform_adapter import PlatformDetector, PlatformAdapter, Platform
+from matcher import Matcher
+from intro_manager import IntroductionManager
+from network_generator import NetworkGenerator
 
 load_dotenv()
 
@@ -58,6 +61,17 @@ class SeriesAIFriend:
         self.platform_detector = PlatformDetector()
         self.platform_adapter = PlatformAdapter(self.platform_detector)
         self.message_editor = MessageEditSimulator(self.api_client, self.behavior_simulator)
+
+        # Phase 4 components
+        self.matcher = Matcher()
+        self.intro_manager = IntroductionManager(
+            self.api_client,
+            self.platform_adapter,
+            self.response_engine
+        )
+
+        # Generate synthetic network for demo
+        self.network = self._initialize_network()
 
         self.user_phone = os.getenv('USER_PHONE')
         self.sender_number = os.getenv('SENDER_NUMBER')
@@ -233,15 +247,34 @@ class SeriesAIFriend:
 
             logger.info(f"Reaction from {sender}: {reaction} on message {message_id}")
 
-            # Phase 3: Handle reaction using platform adapter
+            # Phase 3 & 4: Handle reaction using platform adapter
             result = self.platform_adapter.handle_reaction(sender, reaction, 'confirmation')
 
             if result is not None:
                 logger.info(f"Reaction interpreted as: {result}")
-                # In Phase 4, this will handle intro acceptance/rejection
-                # For now, just acknowledge
-                ack = "Got it!" if result else "No problem!"
-                self.api_client.send_message(sender, ack)
+
+                # Phase 4: Check if this is an intro confirmation
+                pending_intro = self.intro_manager.get_pending_intro_for_user(sender)
+
+                if pending_intro:
+                    # This is an intro confirmation
+                    intro_id = pending_intro['id']
+
+                    if pending_intro['requester'] == sender:
+                        # Requester responding
+                        response = self.intro_manager.handle_requester_response(intro_id, result)
+                    elif pending_intro['match'] == sender:
+                        # Match responding
+                        response = self.intro_manager.handle_match_response(intro_id, result)
+                    else:
+                        response = None
+
+                    if response:
+                        self.api_client.send_message(sender, response)
+                else:
+                    # Generic acknowledgment
+                    ack = "Got it!" if result else "No problem!"
+                    self.api_client.send_message(sender, ack)
 
         except Exception as e:
             logger.error(f"Error handling reaction: {e}", exc_info=True)
@@ -305,13 +338,10 @@ class SeriesAIFriend:
                 for key, value in answer.items():
                     self.conversation_manager.add_gathered_info(phone, key, value)
 
-                # Check if we have enough info
+                # Check if we have enough info to match
                 if self.conversation_manager.has_sufficient_info(phone):
-                    summary = self.conversation_manager.get_conversation_summary(phone)
-                    return self.response_engine.generate_response(
-                        'explicit_intro_request',
-                        {'summary': summary}
-                    )
+                    # Phase 4: Find matches
+                    return self._handle_matching_request(phone, profile)
                 else:
                     # Ask another question
                     next_question = self.conversation_manager.get_next_question(
@@ -345,6 +375,9 @@ class SeriesAIFriend:
                     # Acknowledge first, then ask
                     ack = self.response_engine.generate_response('explicit_intro_request')
                     return f"{ack}\n\n{next_question}"
+            else:
+                # Have enough info, find matches
+                return self._handle_matching_request(phone, profile)
 
         # Use response engine with context
         response = self.response_engine.generate_conversational_response(
@@ -425,6 +458,56 @@ class SeriesAIFriend:
             # Small delay between parts
             if len(message_parts) > 1:
                 time.sleep(0.5)
+
+    def _initialize_network(self) -> List[Dict[str, Any]]:
+        """Initialize synthetic network for demo"""
+        generator = NetworkGenerator()
+        network = generator.generate_network(50)  # Generate 50 users
+        generator.add_network_connections(network, avg_connections=10)
+
+        logger.info(f"Initialized network with {len(network)} users")
+        return network
+
+    def _handle_matching_request(self, phone: str, profile: Dict[str, Any]) -> str:
+        """
+        Handle matching request (Phase 4)
+
+        Args:
+            phone: User's phone number
+            profile: User's profile
+
+        Returns:
+            Response message
+        """
+        # Get gathered requirements
+        requirements = self.conversation_manager.get_gathered_info(phone)
+
+        logger.info(f"Finding matches for: {requirements}")
+
+        # Find matches
+        matches = self.matcher.find_matches(requirements, self.network, profile, top_n=3)
+
+        if not matches:
+            # No matches found
+            self.conversation_manager.reset_context(phone)
+            return "Hmm, I don't have anyone in my network who fits right now. But I'll keep this in mind!"
+
+        # Get best match
+        best_match = matches[0]
+
+        # Generate explanation
+        explanation = self.matcher.explain_match(best_match)
+
+        # Initiate introduction
+        intro_id = self.intro_manager.initiate_introduction(
+            profile,
+            best_match.user,
+            requirements,
+            explanation
+        )
+
+        # Return confirmation (actual message sent by intro_manager)
+        return None  # intro_manager already sent message
 
     def start(self):
         """Start the application"""
