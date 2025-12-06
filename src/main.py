@@ -514,7 +514,18 @@ class SeriesAIFriend:
                     ack = self.response_engine.generate_response('explicit_intro_request')
                     return f"{ack}\n\n{next_question}"
             else:
-                # Have enough info, find matches
+                # Have enough info, but check if we should build profile/Catalyst data first
+                conversation_turn = len(conv_context.questions_asked) if conv_context else 0
+                
+                if self.catalyst_director.should_ask_catalyst_question(profile, conversation_turn):
+                    catalyst_question = self.catalyst_director.get_next_catalyst_question(profile)
+                    if catalyst_question:
+                        logger.info(f"[CATALYST-DIRECTOR] Asking: {catalyst_question}")
+                        # Acknowledge request + ask Catalyst question
+                        ack = "On it 🔍"
+                        return f"{ack}\n\n{catalyst_question}"
+
+                # If no Catalyst questions needed, find matches
                 return self._handle_matching_request(phone, profile)
 
         # CRITICAL FIX: Only pass gathered_info for search-related intents
