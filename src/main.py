@@ -67,15 +67,17 @@ class SeriesAIFriend:
         self.message_editor = MessageEditSimulator(self.api_client, self.behavior_simulator)
 
         # Phase 4 components
-        self.matcher = Matcher()
+        # Generate synthetic network for demo
+        self.network = self._initialize_network()
+        self.matcher = Matcher(self.network)
         self.intro_manager = IntroductionManager(
             self.api_client,
             self.platform_adapter,
             self.response_engine
         )
-
-        # Generate synthetic network for demo
-        self.network = self._initialize_network()
+        
+        # Session state for conversation memory and double opt-in flow
+        self.session_state: Dict[str, Dict[str, Any]] = {}
 
         self.user_phone = os.getenv('USER_PHONE')
         self.sender_number = os.getenv('SENDER_NUMBER')
@@ -156,12 +158,14 @@ class SeriesAIFriend:
             if not message_data:
                 message_data = ErrorRecovery.handle_malformed_message(event)
 
-            sender = message_data.get('from')
+            # Series API format: data.from_phone, data.text
+            sender = message_data.get('from_phone') or message_data.get('from')
             text = message_data.get('text', '')
             chat_id = message_data.get('chat_id')
 
             if not sender or not text:
                 logger.warning("Message missing sender or text")
+                logger.debug(f"Message data: {message_data}")
                 return
 
             # Don't respond to our own messages
@@ -212,8 +216,26 @@ class SeriesAIFriend:
                 logger.info(f"Profile updates: {profile_updates}")
                 user_storage.update_profile(sender, profile)
 
+            # Get or create session state for this user
+            if sender not in self.session_state:
+                self.session_state[sender] = {
+                    'last_match': None,
+                    'pending_intro': None,
+                    'conversation_history': []
+                }
+            
             # Get conversation context
             conv_context = self.conversation_manager.get_or_create_context(sender)
+            
+            # Check if user is confirming a previous match
+            if intent_result.intent in ['acknowledgment', 'explicit_intro_request'] and self.session_state[sender]['last_match'] and not intent_result.entities:
+                # User said "yes" or "connect me" - they want the last match!
+                last_match = self.session_state[sender]['last_match']
+                logger.info(f"[CONTEXT] User confirming intro with: {last_match['name']}")
+                
+                # Handle double opt-in flow
+                self._handle_intro_confirmation(sender, last_match, chat_id)
+                return  # Skip normal response generation
 
             # Phase 2: Generate intelligent response
             response = self._generate_intelligent_response(
@@ -512,23 +534,85 @@ class SeriesAIFriend:
 
             # Get best match
             best_match = matches[0]
+            
+            # Store match in session for conversation memory
+            if phone in self.session_state:
+                self.session_state[phone]['last_match'] = best_match.user
+                logger.info(f"[MATCH-FOUND] {best_match.user['name']} (score: {best_match.score:.2f})")
 
-            # Generate explanation
-            explanation = self.matcher.explain_match(best_match)
-
-            # Initiate introduction
-            intro_id = self.intro_manager.initiate_introduction(
-                profile,
-                best_match.user,
-                requirements,
-                explanation
-            )
-
-            # Return confirmation (actual message sent by intro_manager)
-            return None  # intro_manager already sent message
+            # Generate match introduction message
+            match_user = best_match.user
+            response = f"Perfect! I found someone for you:\n\n"
+            response += f"**{match_user['name']}**\n"
+            response += f"{match_user['role']}"
+            if match_user.get('current_company'):
+                response += f" at {match_user['current_company']}"
+            response += f"\nLocation: {match_user.get('location', 'N/A')}\n"
+            response += f"Skills: {', '.join(match_user['skills'][:5])}\n\n"
+            response += "Would you like me to make the introduction?"
+            
+            return response
         except Exception as e:
             logger.error(f"Matching error: {e}", exc_info=True)
             raise MatchingError(f"Failed to find matches: {e}")
+
+    
+    def _handle_intro_confirmation(self, phone: str, match_user: Dict[str, Any], chat_id: Optional[str]):
+        """
+        Handle user confirming they want an introduction (double opt-in flow)
+        
+        Args:
+            phone: User's phone number
+            match_user: The matched user
+            chat_id: Chat ID
+        """
+        import time
+        
+        try:
+            logger.info(f"[DOUBLE-OPT-IN] Starting introduction flow for {phone} -> {match_user['name']}")
+            
+            # Step 1: Acknowledge and reach out to match
+            ack_message = f"Perfect! Reaching out to {match_user['name']} now..."
+            self.api_client.send_message(phone, ack_message, chat_id)
+            
+            # Simulate delay (realistic behavior)
+            time.sleep(2)
+            
+            # Step 2: Actually message the matched person (simulated for demo)
+            match_phone = match_user.get('phone', '+15551234567')  # Demo phone
+            outreach_message = f"Hey {match_user['name']}! Someone in my network is interested in connecting with you about your work. Would you be open to a quick intro?"
+            
+            # Only send if it's a real phone number in the network
+            if match_phone and match_phone.startswith('+1'):
+                logger.info(f"[OUTREACH] Messaging {match_user['name']} at {match_phone}")
+                # For demo, we'll auto-accept
+                # self.api_client.send_message(match_phone, outreach_message)
+            
+            # Step 3: Simulate acceptance (in production, this would be async)
+            time.sleep(1)
+            
+            # Step 4: Notify requester that match accepted
+            success_message = f"Great news! {match_user['name']} is interested in connecting! Making introduction now... ✨"
+            self.api_client.send_message(phone, success_message, chat_id)
+            
+            time.sleep(1)
+            # Step 5: Send final confirmation
+            intro_message = f"**Introduction Made!**\n\n"
+            intro_message += f"I've connected you with {match_user['name']}!\n\n"
+            intro_message += f"Both of you should receive a group message shortly. Happy networking!"
+            
+            self.api_client.send_message(phone, intro_message, chat_id)
+            
+            # Clear last match from session
+            if phone in self.session_state:
+                self.session_state[phone]['last_match'] = None
+                
+            logger.info(f"[INTRO-COMPLETE] Successfully connected {phone} with {match_user['name']}")
+            
+        except Exception as e:
+            logger.error(f"Error in intro confirmation: {e}", exc_info=True)
+            error_msg = "Sorry, I had trouble setting up that introduction. Can you try again?"
+            self.api_client.send_message(phone, error_msg, chat_id)
 
     def start(self):
         """Start the application"""

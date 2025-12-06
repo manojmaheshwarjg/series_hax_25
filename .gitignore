@@ -58,3 +58,4 @@ instance/
 # Documentation (keep only README)
 DEPLOYMENT.md
 DEMO.md
+WARP.md

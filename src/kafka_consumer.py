@@ -1,13 +1,14 @@
 """
 Kafka consumer for Series AI Friend
 Connects to Confluent Cloud and processes incoming events
+Switched to confluent-kafka to avoid kafka-python packaging issues on Windows
 """
 
 import json
 import logging
 import time
 from typing import Callable, Dict, Any
-from confluent_kafka import Consumer, KafkaError, KafkaException
+from confluent_kafka import Consumer, KafkaError
 import os
 from dotenv import load_dotenv
 
@@ -24,23 +25,12 @@ class SeriesKafkaConsumer:
         self.topic = os.getenv('KAFKA_TOPIC')
         self.sasl_username = os.getenv('SASL_USERNAME')
         self.sasl_password = os.getenv('SASL_PASSWORD')
+        self.group_id = os.getenv('KAFKA_CONSUMER_GROUP') or 'series-ai-bot-v1'
 
         # Event handlers by type
         self.handlers: Dict[str, Callable] = {}
 
-        # Configure consumer
-        self.config = {
-            'bootstrap.servers': self.bootstrap_servers,
-            'group.id': 'series-ai-friend-consumer',
-            'auto.offset.reset': 'latest',  # Start from latest messages
-            'enable.auto.commit': True,
-            'security.protocol': 'SASL_SSL',
-            'sasl.mechanisms': 'PLAIN',
-            'sasl.username': self.sasl_username,
-            'sasl.password': self.sasl_password,
-        }
-
-        self.consumer = None
+        self.consumer: Consumer | None = None
         self.running = False
 
     def register_handler(self, event_type: str, handler: Callable):
@@ -48,12 +38,29 @@ class SeriesKafkaConsumer:
         self.handlers[event_type] = handler
         logger.info(f"Registered handler for event type: {event_type}")
 
-    def connect(self):
-        """Initialize connection to Kafka"""
+    def connect(self) -> bool:
+        """Initialize connection to Kafka (Confluent)
+        Returns True on success, False otherwise.
+        """
         try:
-            self.consumer = Consumer(self.config)
+            if not self.bootstrap_servers:
+                logger.error("No bootstrap servers found")
+                return False
+
+            conf = {
+                'bootstrap.servers': self.bootstrap_servers,
+                'security.protocol': 'SASL_SSL',
+                'sasl.mechanisms': 'PLAIN',
+                'sasl.username': self.sasl_username,
+                'sasl.password': self.sasl_password,
+                'group.id': self.group_id,
+                'auto.offset.reset': 'latest',
+                'enable.auto.commit': True,
+            }
+
+            self.consumer = Consumer(conf)
             self.consumer.subscribe([self.topic])
-            logger.info(f"Connected to Kafka topic: {self.topic}")
+            logger.info(f"Connected to Kafka topic: {self.topic} (group: {self.group_id})")
             return True
         except Exception as e:
             logger.error(f"Failed to connect to Kafka: {e}")
@@ -61,16 +68,38 @@ class SeriesKafkaConsumer:
 
     def process_event(self, event_data: Dict[str, Any]):
         """Route event to appropriate handler"""
-        event_type = event_data.get('type')
+        # Series API uses 'event_type' not 'type'
+        event_type = (event_data.get('event_type')
+                      or event_data.get('type'))
 
+        # "Series API uses 'event_type' not 'type'" -> This line was above.
+        # Check alignment. The previous block was:
+        # event_type = ...
+        
+        # Fallback for messages missing event_type
         if not event_type:
-            logger.warning("Event missing 'type' field")
-            return
+            # Check if it looks like a message
+            if event_data.get('data', {}).get('text') and (event_data.get('data', {}).get('from_phone') or event_data.get('data', {}).get('from')):
+                event_type = 'message.received'
+                logger.info("Inferred event_type: message.received")
+            else:
+                logger.warning("Event missing 'event_type' field")
+                logger.debug(f"Event data: {event_data}")
+                return
 
-        logger.debug(f"Processing event type: {event_type}")
+        logger.info(f"Received event: {event_type}")
 
         # Try to find specific handler
         handler = self.handlers.get(event_type)
+
+        if not handler:
+            # Try wildcard patterns (e.g., "typing_indicator.*")
+            for pattern, h in self.handlers.items():
+                if pattern.endswith('.*'):
+                    prefix = pattern[:-2]
+                    if event_type.startswith(prefix):
+                        handler = h
+                        break
 
         if handler:
             try:
@@ -78,19 +107,7 @@ class SeriesKafkaConsumer:
             except Exception as e:
                 logger.error(f"Error in handler for {event_type}: {e}", exc_info=True)
         else:
-            # Try wildcard handlers (e.g., "typing_indicator.*")
-            for registered_type, handler_func in self.handlers.items():
-                if '*' in registered_type:
-                    prefix = registered_type.replace('.*', '')
-                    if event_type.startswith(prefix):
-                        try:
-                            handler_func(event_data)
-                            return
-                        except Exception as e:
-                            logger.error(f"Error in wildcard handler for {event_type}: {e}", exc_info=True)
-                            return
-
-            logger.debug(f"No handler registered for event type: {event_type}")
+            logger.warning(f"No handler registered for event type: {event_type}")
 
     def start(self):
         """Start consuming messages from Kafka"""
@@ -104,28 +121,24 @@ class SeriesKafkaConsumer:
 
         try:
             while self.running:
-                msg = self.consumer.poll(timeout=1.0)
-
+                msg = self.consumer.poll(1.0)
                 if msg is None:
                     continue
-
                 if msg.error():
+                    # Ignore EOF errors
                     if msg.error().code() == KafkaError._PARTITION_EOF:
-                        logger.debug(f"Reached end of partition {msg.partition()}")
-                    else:
-                        logger.error(f"Kafka error: {msg.error()}")
-                        raise KafkaException(msg.error())
-                else:
-                    # Parse message
-                    try:
-                        event_data = json.loads(msg.value().decode('utf-8'))
-                        logger.info(f"Received event: {event_data.get('type', 'unknown')}")
-                        self.process_event(event_data)
-                    except json.JSONDecodeError as e:
-                        logger.error(f"Failed to parse message: {e}")
-                    except Exception as e:
-                        logger.error(f"Error processing message: {e}", exc_info=True)
+                        continue
+                    logger.error(f"Kafka error: {msg.error()}")
+                    continue
 
+                try:
+                    payload = msg.value()
+                    if not payload:
+                        continue
+                    event_data = json.loads(payload.decode('utf-8')) if isinstance(payload, (bytes, bytearray)) else payload
+                    self.process_event(event_data)
+                except Exception as e:
+                    logger.error(f"Error processing message: {e}", exc_info=True)
         except KeyboardInterrupt:
             logger.info("Consumer interrupted by user")
         except Exception as e:
@@ -138,8 +151,10 @@ class SeriesKafkaConsumer:
         self.running = False
         if self.consumer:
             logger.info("Closing Kafka consumer...")
-            self.consumer.close()
-            logger.info("Kafka consumer closed")
+            try:
+                self.consumer.close()
+            finally:
+                logger.info("Kafka consumer closed")
 
 
 if __name__ == "__main__":

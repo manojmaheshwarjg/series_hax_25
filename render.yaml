@@ -1,0 +1,26 @@
+services:
+  - type: worker
+    name: series-ai-friend
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: KAFKA_BOOTSTRAP_SERVERS
+        sync: false
+      - key: KAFKA_TOPIC
+        sync: false
+      - key: SASL_USERNAME
+        sync: false
+      - key: SASL_PASSWORD
+        sync: false
+      - key: API_KEY
+        sync: false
+      - key: API_BASE_URL
+        sync: false
+      - key: SENDER_NUMBER
+        sync: false
+      - key: USER_PHONE
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: LOG_LEVEL
+        value: INFO

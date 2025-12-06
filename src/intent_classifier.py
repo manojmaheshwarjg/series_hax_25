@@ -1,15 +1,20 @@
 """
 Intent Classification Engine
-Analyzes user messages to determine intent and extract entities
+Analyzes user messages to determine intent and extract entities using Groq AI
 """
 
-import re
+import os
+import json
 import logging
-from typing import Dict, List, Tuple, Any
+from typing import Dict, List, Any
 from dataclasses import dataclass
+from groq import Groq
+from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
 
+# Load environment variables
+load_dotenv()
 
 @dataclass
 class IntentResult:
@@ -22,205 +27,114 @@ class IntentResult:
 
 
 class IntentClassifier:
-    """Rule-based intent classification with entity extraction"""
+    """Groq-powered intent classification with entity extraction"""
 
     def __init__(self):
-        # Intent patterns (intent_type, patterns, confidence)
-        self.patterns = {
-            'explicit_intro_request': [
-                (r'\b(need|looking for|want|require|seeking)\b.*\b(connect|intro|introduction|meet)\b', 0.95),
-                (r'\b(know anyone|anyone who|someone who)\b', 0.90),
-                (r'\b(connect me|introduce me)\b', 0.95),
-            ],
-            'implicit_need': [
-                (r'\b(struggling with|having trouble|need help|stuck on)\b', 0.85),
-                (r'\b(looking for|searching for|trying to find)\b.*\b(developer|engineer|designer|founder|investor|advisor)\b', 0.90),
-                (r'\b(need|want|require)\b.*\b(developer|engineer|designer|founder|investor|advisor|expert)\b', 0.88),
-            ],
-            'skill_share': [
-                (r'\b(I (can|could) help|I know|I\'m good at|expert in|experienced in)\b', 0.85),
-                (r'\b(worked on|built|developed|created|designed)\b', 0.75),
-            ],
-            'feedback_positive': [
-                (r'\b(great|awesome|perfect|excellent|amazing|fantastic|love|loved|helpful)\b', 0.85),
-                (r'\b(thanks|thank you|appreciate)\b.*\b(intro|introduction|connection)\b', 0.90),
-            ],
-            'feedback_negative': [
-                (r'\b(not (a )?good (fit|match)|didn\'t work out|wasn\'t helpful)\b', 0.85),
-                (r'\b(waste of time|not relevant|not what I needed)\b', 0.90),
-            ],
-            'acknowledgment': [
-                (r'^\b(ok|okay|got it|sounds good|sure|yes|yeah|yep|alright)\b', 0.90),
-                (r'^\b(thanks|thank you|ty|thx)\b$', 0.95),
-            ],
-            'question': [
-                (r'\?$', 0.80),
-                (r'^\b(what|when|where|who|why|how|can|could|would|do you)\b', 0.85),
-            ],
-            'clarification': [
-                (r'\b(what do you mean|not sure|confused|clarify|explain)\b', 0.85),
-                (r'\b(can you (explain|tell me more))\b', 0.80),
-            ],
-            'greeting': [
-                (r'^\b(hi|hey|hello|sup|yo|howdy)\b', 0.95),
-                (r'^\b(good (morning|afternoon|evening))\b', 0.95),
-            ],
-            'farewell': [
-                (r'\b(bye|goodbye|see you|later|gotta go|gtg)\b', 0.90),
-            ],
-        }
-
-        # Entity extraction patterns
-        self.entity_patterns = {
-            'role': [
-                'developer', 'engineer', 'designer', 'product manager', 'pm',
-                'founder', 'ceo', 'cto', 'investor', 'advisor', 'consultant',
-                'marketer', 'sales', 'recruiter', 'data scientist', 'ml engineer',
-                'backend', 'frontend', 'fullstack', 'devops', 'mobile'
-            ],
-            'technology': [
-                'python', 'javascript', 'typescript', 'react', 'vue', 'angular',
-                'node', 'nodejs', 'django', 'flask', 'fastapi', 'express',
-                'aws', 'gcp', 'azure', 'docker', 'kubernetes', 'k8s',
-                'postgresql', 'mysql', 'mongodb', 'redis',
-                'ml', 'machine learning', 'ai', 'deep learning', 'nlp',
-                'tensorflow', 'pytorch', 'scikit-learn',
-                'react native', 'flutter', 'ios', 'android',
-                'java', 'c++', 'go', 'golang', 'rust', 'ruby', 'php'
-            ],
-            'seniority': [
-                'senior', 'junior', 'mid-level', 'staff', 'principal',
-                'lead', 'manager', 'director', 'vp', 'head of',
-                'intern', 'entry-level', 'experienced'
-            ],
-            'location': [
-                'nyc', 'new york', 'sf', 'san francisco', 'bay area',
-                'boston', 'austin', 'seattle', 'la', 'los angeles',
-                'chicago', 'remote', 'distributed'
-            ],
-            'industry': [
-                'fintech', 'saas', 'b2b', 'b2c', 'e-commerce', 'ecommerce',
-                'healthcare', 'health tech', 'edtech', 'education',
-                'crypto', 'web3', 'blockchain', 'ai', 'ml',
-                'startup', 'enterprise', 'agency'
-            ],
-            'goal': [
-                'hiring', 'fundraising', 'investment', 'partnership',
-                'advice', 'mentorship', 'consulting', 'freelance',
-                'collaboration', 'co-founder'
-            ]
-        }
-
-        # Sentiment keywords
-        self.sentiment_keywords = {
-            'positive': ['great', 'awesome', 'perfect', 'excellent', 'love', 'amazing', 'helpful'],
-            'negative': ['bad', 'terrible', 'awful', 'horrible', 'waste', 'useless', 'disappointed'],
-            'urgent': ['urgent', 'asap', 'quickly', 'immediately', 'now', 'emergency', 'critical']
-        }
+        api_key = os.environ.get("GROQ_API_KEY")
+        if not api_key:
+            logger.warning("GROQ_API_KEY not found in environment variables. Classifier will fail.")
+        
+        self.client = Groq(api_key=api_key)
+        self.model = "llama-3.3-70b-versatile"
 
     def classify(self, text: str) -> IntentResult:
         """
-        Classify intent of a message
-
-        Args:
-            text: Input message text
-
-        Returns:
-            IntentResult with intent, confidence, and extracted entities
+        Classify intent of a message using Groq
         """
-        text_lower = text.lower().strip()
+        if not text or not text.strip():
+             return IntentResult(
+                intent='other',
+                confidence=0.0,
+                entities={},
+                sentiment='neutral',
+                keywords=[]
+            )
 
-        # Find matching intent
-        best_intent = 'other'
-        best_confidence = 0.0
+        try:
+            # Simple, effective prompt that works reliably with Llama 3
+            system_prompt = """
+            You are an intent classification system.
+            Identify the user's intent and extract entities (role, technology, location, etc.).
+            
+            INTENTS:
+            - explicit_intro_request
+            - implicit_need
+            - skill_share
+            - feedback_positive
+            - feedback_negative
+            - greeting
+            - question_system_capabilities
+            - question_status
+            - clarification
+            - schedule_meeting
+            - update_profile
+            - farewell
+            - acknowledgment
+            - other
 
-        for intent_type, patterns in self.patterns.items():
-            for pattern, confidence in patterns:
-                if re.search(pattern, text_lower, re.IGNORECASE):
-                    if confidence > best_confidence:
-                        best_intent = intent_type
-                        best_confidence = confidence
+            Return JSON object only.
 
-        # Extract entities
-        entities = self._extract_entities(text_lower)
+            Example:
+            Input: "I need a senior React dev in NYC"
+            Output: {
+                "intent": "explicit_intro_request",
+                "confidence": 0.99,
+                "entities": {
+                    "role": ["dev"],
+                    "technology": ["React"],
+                    "location": ["NYC"]
+                },
+                "sentiment": "neutral"
+            }
+            """
 
-        # Determine sentiment
-        sentiment = self._analyze_sentiment(text_lower)
+            chat_completion = self.client.chat.completions.create(
+                messages=[
+                    {
+                        "role": "system",
+                        "content": system_prompt
+                    },
+                    {
+                        "role": "user",
+                        "content": text
+                    }
+                ],
+                model=self.model,
+                temperature=0.0,
+                response_format={"type": "json_object"}
+            )
 
-        # Extract keywords
-        keywords = self._extract_keywords(text_lower)
+            response_content = chat_completion.choices[0].message.content
+            data = json.loads(response_content)
+            
+            # Normalize entities dict
+            entities = data.get("entities", {})
+            # Ensure values are lists
+            for k, v in entities.items():
+                if not isinstance(v, list):
+                    entities[k] = [v] if v else []
 
-        result = IntentResult(
-            intent=best_intent,
-            confidence=best_confidence if best_confidence > 0 else 0.5,
-            entities=entities,
-            sentiment=sentiment,
-            keywords=keywords
-        )
+            return IntentResult(
+                intent=data.get("intent", "other"),
+                confidence=data.get("confidence", 0.5),
+                entities=entities,
+                sentiment=data.get("sentiment", "neutral"),
+                keywords=data.get("keywords", [])
+            )
 
-        logger.debug(f"Classified intent: {result.intent} (confidence: {result.confidence:.2f})")
-
-        return result
-
-    def _extract_entities(self, text: str) -> Dict[str, List[str]]:
-        """Extract entities from text"""
-        entities = {}
-
-        for entity_type, keywords in self.entity_patterns.items():
-            found = []
-            for keyword in keywords:
-                # Use word boundaries for better matching
-                pattern = r'\b' + re.escape(keyword) + r'\b'
-                if re.search(pattern, text, re.IGNORECASE):
-                    found.append(keyword)
-
-            if found:
-                entities[entity_type] = found
-
-        return entities
-
-    def _analyze_sentiment(self, text: str) -> str:
-        """Analyze sentiment of text"""
-        # Check for urgent signals first
-        for keyword in self.sentiment_keywords['urgent']:
-            if keyword in text:
-                return 'urgent'
-
-        # Count positive and negative keywords
-        positive_count = sum(1 for kw in self.sentiment_keywords['positive'] if kw in text)
-        negative_count = sum(1 for kw in self.sentiment_keywords['negative'] if kw in text)
-
-        if negative_count > positive_count:
-            return 'negative'
-        elif positive_count > negative_count:
-            return 'positive'
-        else:
-            return 'neutral'
-
-    def _extract_keywords(self, text: str) -> List[str]:
-        """Extract important keywords from text"""
-        # Remove common stop words
-        stop_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
-                     'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
-                     'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
-                     'could', 'should', 'may', 'might', 'can', 'i', 'you', 'he', 'she',
-                     'it', 'we', 'they', 'this', 'that', 'these', 'those'}
-
-        words = re.findall(r'\b\w+\b', text.lower())
-        keywords = [w for w in words if w not in stop_words and len(w) > 2]
-
-        return keywords[:10]  # Return top 10 keywords
+        except Exception as e:
+            logger.error(f"Error calling Groq API: {e}")
+            return IntentResult(
+                intent='other',
+                confidence=0.0,
+                entities={},
+                sentiment='neutral',
+                keywords=[]
+            )
 
     def extract_need_details(self, text: str, intent_result: IntentResult) -> Dict[str, Any]:
         """
         Extract detailed need information from a request
-
-        Args:
-            text: Original message text
-            intent_result: Intent classification result
-
-        Returns:
-            Dictionary with structured need details
         """
         details = {
             'query': text,
@@ -229,54 +143,44 @@ class IntentClassifier:
             'requirements': []
         }
 
-        # Extract specific requirements
-        if 'role' in intent_result.entities:
-            details['requirements'].append({
-                'type': 'role',
-                'values': intent_result.entities['role']
-            })
-
-        if 'technology' in intent_result.entities:
-            details['requirements'].append({
-                'type': 'technology',
-                'values': intent_result.entities['technology']
-            })
-
-        if 'seniority' in intent_result.entities:
-            details['requirements'].append({
-                'type': 'seniority',
-                'values': intent_result.entities['seniority']
-            })
-
-        if 'location' in intent_result.entities:
-            details['requirements'].append({
-                'type': 'location',
-                'values': intent_result.entities['location']
-            })
+        # Structure the requirements list from the flat entities dict
+        for key in ['role', 'technology', 'seniority', 'location']:
+            if key in intent_result.entities and intent_result.entities[key]:
+                 details['requirements'].append({
+                    'type': key,
+                    'values': intent_result.entities[key]
+                })
 
         return details
 
-
 if __name__ == "__main__":
     # Test the classifier
-    logging.basicConfig(level=logging.DEBUG)
+    logging.basicConfig(level=logging.INFO)
+    
+    # Silence third-party loggers
+    logging.getLogger("urllib3").setLevel(logging.WARNING)
+    logging.getLogger("http").setLevel(logging.WARNING)
+    logging.getLogger("groq").setLevel(logging.WARNING)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    
+    # Check for API Key
+    if not os.environ.get("GROQ_API_KEY"):
+         print("ERROR: GROQ_API_KEY not set. Please set it in your environment or .env file.")
+         exit(1)
 
     classifier = IntentClassifier()
 
     test_messages = [
         "Hey, I need a senior React developer for my startup",
-        "Looking for someone who knows Python and machine learning",
-        "I'm struggling with AWS deployment, need help",
-        "Thanks for the intro, it was great!",
+        "I'm drowning in AWS configs and need someone to save me", # Implicit need
+        "Just launched my MVP!",
         "The person you introduced wasn't a good fit",
-        "What do you mean by that?",
-        "Hi there!",
-        "I'm experienced in backend development with Django and PostgreSQL",
     ]
 
+    print("Testing Groq Intent Classifier...")
     for msg in test_messages:
-        result = classifier.classify(msg)
         print(f"\nMessage: {msg}")
-        print(f"Intent: {result.intent} (confidence: {result.confidence:.2f})")
+        result = classifier.classify(msg)
+        print(f"Intent: {result.intent} ({result.confidence})")
         print(f"Entities: {result.entities}")
         print(f"Sentiment: {result.sentiment}")

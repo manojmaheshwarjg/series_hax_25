@@ -1,0 +1,51 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+
+# Logs
+*.log
+data/*.log
+
+# Test files
+test_*.py
+debug_*.py
+demo_*.py
+check_*.py
+establish_*.py
+reset_*.py
+
+# Tools
+tools/
+
+# Frontend/Backend (if not needed)
+frontend/
+backend/
+
+# Batch files
+*.bat
+*.sh
+
+# Environment file (will be provided via platform)
+.env

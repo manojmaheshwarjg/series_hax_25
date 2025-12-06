@@ -107,18 +107,31 @@ class SeriesAPIClient:
 
     @handle_api_error
     def send_message(self, to_number: str, text: str, chat_id: Optional[str] = None) -> Optional[Dict]:
-        """Send a text message"""
-        data = {
-            'from': self.sender_number,
-            'to': to_number,
-            'text': text
-        }
-
+        """Send a text message using Series Hackathon API format"""
+        
         if chat_id:
-            data['chat_id'] = chat_id
+            # Use existing chat to send message
+            data = {
+                'message': {
+                    'text': text
+                }
+            }
+            endpoint = f'/api/chats/{chat_id}/chat_messages'
+        else:
+            # Create new chat with first message (Hackathon API format)
+            data = {
+                'send_from': self.sender_number,
+                'chat': {
+                    'phone_numbers': [to_number]
+                },
+                'message': {
+                    'text': text
+                }
+            }
+            endpoint = '/api/chats'
 
         logger.info(f"Sending message to {to_number}: {text[:50]}...")
-        response = self._make_request('POST', '/api/chat_messages', data=data)
+        response = self._make_request('POST', endpoint, data=data)
 
         if response:
             logger.info(f"Message sent successfully")
@@ -128,26 +141,32 @@ class SeriesAPIClient:
 
         return response
 
-    def send_typing_indicator(self, to_number: str, duration_ms: int = 3000) -> Optional[Dict]:
-        """Send typing indicator"""
+    def send_typing_indicator(self, chat_id: str, start: bool = True) -> Optional[Dict]:
+        """Send typing indicator using Hackathon API"""
+        if start:
+            endpoint = f'/api/chats/{chat_id}/start_typing'
+            logger.debug(f"Starting typing indicator for chat {chat_id}")
+        else:
+            endpoint = f'/api/chats/{chat_id}/stop_typing'
+            logger.debug(f"Stopping typing indicator for chat {chat_id}")
+        
+        return self._make_request('POST' if start else 'DELETE', endpoint)
+
+    def send_reaction(self, message_id: str, reaction_type: str, operation: str = 'add') -> Optional[Dict]:
+        """Send a reaction to a message using Hackathon API
+        
+        Args:
+            message_id: ID of the message
+            reaction_type: One of 'love', 'like', 'dislike', 'laugh', 'emphasize', 'question'
+            operation: 'add' or 'remove'
+        """
         data = {
-            'from': self.sender_number,
-            'to': to_number,
-            'duration_ms': duration_ms
+            'operation': operation,
+            'type': reaction_type
         }
 
-        logger.debug(f"Sending typing indicator to {to_number} for {duration_ms}ms")
-        return self._make_request('POST', '/api/typing_indicators', data=data)
-
-    def send_reaction(self, message_id: str, reaction: str) -> Optional[Dict]:
-        """Send a reaction to a message"""
-        data = {
-            'message_id': message_id,
-            'reaction': reaction
-        }
-
-        logger.info(f"Sending reaction '{reaction}' to message {message_id}")
-        return self._make_request('POST', '/api/reactions', data=data)
+        logger.info(f"Sending reaction '{reaction_type}' ({operation}) to message {message_id}")
+        return self._make_request('POST', f'/api/chat_messages/{message_id}/reactions', data=data)
 
     def create_group_chat(self, participants: List[str], name: Optional[str] = None) -> Optional[Dict]:
         """Create a group chat"""

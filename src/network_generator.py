@@ -43,12 +43,26 @@ class NetworkGenerator:
         ]
 
         self.roles = [
+            # Engineering
             'Software Engineer', 'Senior Software Engineer', 'Staff Engineer',
-            'Engineering Manager', 'Product Manager', 'Senior Product Manager',
-            'Designer', 'Senior Designer', 'Data Scientist', 'ML Engineer',
-            'DevOps Engineer', 'Backend Engineer', 'Frontend Engineer',
-            'Full Stack Engineer', 'Mobile Engineer', 'Security Engineer',
-            'Technical Lead', 'Architect', 'VP Engineering', 'CTO'
+            'Engineering Manager', 'Backend Engineer', 'Frontend Engineer',
+            'Full Stack Engineer', 'Mobile Engineer', 'DevOps Engineer',
+            'ML Engineer', 'Data Engineer', 'Technical Lead', 'CTO',
+            # Product & Design
+            'Product Manager', 'Senior Product Manager', 'Product Designer',
+            'UX Designer', 'UI Designer', 'UX Researcher', 'Design Lead',
+            'Creative Director', 'Brand Designer', 'Graphic Designer',
+            # Content & Media
+            'Content Creator', 'Video Editor', 'Motion Graphics Designer',
+            'Video Producer', 'Content Strategist', 'Social Media Manager',
+            'Copywriter', 'Technical Writer', 'Content Marketing Manager',
+            # Video Production
+            'Cinematographer', 'Director of Photography', 'Video Director',
+            'Post-Production Supervisor', 'Color Grader', 'Sound Designer',
+            'Audio Engineer', 'Producer', 'Executive Producer',
+            # Creative Tech
+            '3D Artist', 'Animation Director', 'VFX Artist', 'Game Designer',
+            'AR/VR Developer', 'Creative Technologist'
         ]
 
         self.skills = {
@@ -58,7 +72,13 @@ class NetworkGenerator:
             'databases': ['PostgreSQL', 'MySQL', 'MongoDB', 'Redis', 'DynamoDB', 'Cassandra'],
             'tools': ['Docker', 'Kubernetes', 'Git', 'Jenkins', 'Terraform', 'Ansible'],
             'ml': ['TensorFlow', 'PyTorch', 'scikit-learn', 'Keras', 'XGBoost'],
-            'mobile': ['React Native', 'Flutter', 'iOS', 'Android']
+            'mobile': ['React Native', 'Flutter', 'iOS', 'Android'],
+            'design': ['Figma', 'Sketch', 'Adobe XD', 'Photoshop', 'Illustrator', 'InDesign', 'Framer'],
+            'video': ['Premiere Pro', 'Final Cut Pro', 'DaVinci Resolve', 'After Effects', 'Avid Media Composer'],
+            'motion': ['After Effects', 'Cinema 4D', 'Blender', 'Motion', 'Nuke'],
+            'audio': ['Pro Tools', 'Logic Pro', 'Ableton', 'Audition', 'Reaper'],
+            '3d': ['Blender', 'Maya', 'Cinema 4D', 'Houdini', 'ZBrush', 'Unreal Engine', 'Unity'],
+            'content': ['SEO', 'Content Strategy', 'Copywriting', 'Social Media', 'Analytics', 'WordPress']
         }
 
         self.interests = [
@@ -178,8 +198,16 @@ class NetworkGenerator:
                 return 'fullstack'
         elif 'product' in role_lower:
             return 'product'
-        elif 'designer' in role_lower:
+        elif 'designer' in role_lower or 'ux' in role_lower or 'ui' in role_lower:
             return 'design'
+        elif 'video' in role_lower or 'editor' in role_lower or 'cinematographer' in role_lower or 'producer' in role_lower:
+            return 'video'
+        elif 'motion' in role_lower or 'animation' in role_lower or 'vfx' in role_lower:
+            return 'motion'
+        elif 'content' in role_lower or 'writer' in role_lower or 'copywriter' in role_lower:
+            return 'content'
+        elif '3d' in role_lower or 'artist' in role_lower:
+            return '3d'
         else:
             return 'other'
 
@@ -223,6 +251,23 @@ class NetworkGenerator:
 
         elif role_type == 'design':
             skills.extend(['Figma', 'Sketch', 'UI/UX', 'Design Systems', 'Prototyping', 'User Research'])
+        
+        elif role_type == 'video':
+            skills.extend(random.sample(self.skills['video'], random.randint(2, 3)))
+            skills.extend(random.sample(self.skills['audio'], random.randint(1, 2)))
+            skills.extend(['Storytelling', 'Color Grading'])
+        
+        elif role_type == 'motion':
+            skills.extend(random.sample(self.skills['motion'], random.randint(2, 3)))
+            skills.extend(random.sample(self.skills['3d'], random.randint(1, 2)))
+        
+        elif role_type == 'content':
+            skills.extend(random.sample(self.skills['content'], random.randint(3, 5)))
+            skills.extend(['Writing', 'Editing', 'Research'])
+        
+        elif role_type == '3d':
+            skills.extend(random.sample(self.skills['3d'], random.randint(2, 4)))
+            skills.extend(['Modeling', 'Texturing', 'Lighting', 'Rendering'])
 
         else:
             skills.extend(random.sample(self.skills['languages'], 2))

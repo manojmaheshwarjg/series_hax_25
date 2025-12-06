@@ -26,7 +26,9 @@ class MatchScore:
 class Matcher:
     """Intelligent matching algorithm"""
 
-    def __init__(self):
+    def __init__(self, network: List[Dict[str, Any]] = None):
+        self.network = network or []
+        
         # Scoring weights (must sum to 1.0)
         self.weights = {
             'skill_overlap': 0.35,
@@ -122,55 +124,62 @@ class Matcher:
 
     def _score_skill_overlap(self, requirements: Dict[str, Any], candidate: Dict[str, Any]) -> float:
         """
-        Score based on skill overlap using Jaccard similarity
-
+        Score based on skill overlap using fuzzy matching
+        
         Returns:
             Score between 0 and 1
         """
-        required_skills = set()
+        required_items = []
 
         # Extract skills from requirements
         if 'technology' in requirements:
             tech = requirements['technology']
             if isinstance(tech, list):
-                required_skills.update([t.lower() for t in tech])
+                required_items.extend([t.lower() for t in tech])
             else:
-                required_skills.add(tech.lower())
+                required_items.append(tech.lower())
 
         if 'role' in requirements:
             role = requirements['role']
             if isinstance(role, list):
-                required_skills.update([r.lower() for r in role])
+                required_items.extend([r.lower() for r in role])
             else:
-                required_skills.add(role.lower())
+                required_items.append(role.lower())
 
         if 'skills' in requirements:
             skills = requirements['skills']
             if isinstance(skills, list):
-                required_skills.update([s.lower() for s in skills])
+                required_items.extend([s.lower() for s in skills])
 
-        candidate_skills = set([s.lower() for s in candidate.get('skills', [])])
-
+        candidate_items = [s.lower() for s in candidate.get('skills', [])]
+        
         # Also check role
         if candidate.get('role'):
-            candidate_skills.add(candidate['role'].lower())
+            candidate_items.append(candidate['role'].lower())
 
-        if not required_skills:
+        if not required_items:
             return 0.5  # Neutral if no requirements
 
-        if not candidate_skills:
+        if not candidate_items:
             return 0.0
 
-        # Jaccard similarity
-        intersection = required_skills & candidate_skills
-        union = required_skills | candidate_skills
-
-        if not union:
-            return 0.0
-
-        jaccard = len(intersection) / len(union)
-
-        return jaccard
+        # Use fuzzy matching: check if any required item is a substring of any candidate item
+        # or vice versa
+        matches = 0
+        for req in required_items:
+            for cand in candidate_items:
+                # Check both directions for substring match
+                if req in cand or cand in req:
+                    matches += 1
+                    break  # Count each required item at most once
+        
+        # Score based on how many requirements were matched
+        if len(required_items) == 0:
+            return 0.5
+        
+        score = matches / len(required_items)
+        
+        return score
 
     def _score_interest_alignment(self, requirements: Dict[str, Any],
                                   candidate: Dict[str, Any],
