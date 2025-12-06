@@ -97,6 +97,10 @@ class ConversationManager:
 
         return self.active_conversations[user_phone]
 
+    def get_conversation_state(self, user_phone: str) -> ConversationContext:
+        """Alias for get_or_create_context"""
+        return self.get_or_create_context(user_phone)
+
     def update_state(self, user_phone: str, new_state: ConversationState):
         """Update conversation state"""
         context = self.get_or_create_context(user_phone)
