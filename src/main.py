@@ -224,6 +224,9 @@ class SeriesAIFriend:
 
             # Build conversation history for context-aware classification
             conversation_history = self.session_state[sender]['conversation_history']
+            
+            # Get conversation context
+            conv_context = self.conversation_manager.get_conversation_state(sender)
 
             # Classify intent with conversation context
             intent_result = self.intent_classifier.classify(text, conversation_history)
