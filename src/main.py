@@ -262,6 +262,9 @@ class SeriesAIFriend:
             )
             if catalyst_updates:
                 logger.info(f"[CATALYST] Profile enhancements: {catalyst_updates}")
+                # CRITICAL FIX: Persist profile updates immediately
+                user_storage.update_profile(sender, profile)
+
             
             # VAGUE ANSWER DETECTION: Check if user gave a vague answer to our last question
             if conv_context and conv_context.last_question:
@@ -523,7 +526,14 @@ class SeriesAIFriend:
                         logger.info(f"[CATALYST-DIRECTOR] Asking: {catalyst_question}")
                         # Acknowledge request + ask Catalyst question
                         ack = "On it 🔍"
-                        return f"{ack}\n\n{catalyst_question}"
+                        response = f"{ack}\n\n{catalyst_question}"
+                        
+                        # Update state so we know we asked
+                        conv_context.last_question = catalyst_question
+                        conv_context.current_topic = 'catalyst_profile'
+                        self.conversation_manager.update_state(phone, ConversationState.GATHERING_NEED)
+                        
+                        return response
 
                 # If no Catalyst questions needed, find matches
                 return self._handle_matching_request(phone, profile)
@@ -547,12 +557,13 @@ class SeriesAIFriend:
             # Don't pass search requirements - they're not about the user!
             logger.debug(f"[RESPONSE-CTX] Not passing search context for intent: {intent}")
 
-        # Use response engine with context
+        # Use response engine with context and history
         response = self.response_engine.generate_conversational_response(
             intent,
             user_name=profile.get('name'),
             entities=intent_result.entities,
-            conversation_context=context_for_response
+            conversation_context=context_for_response,
+            message_history=self.session_state[sender]['conversation_history']
         )
 
         # CATALYST: Check if we should ask a Catalyst question
@@ -567,7 +578,13 @@ class SeriesAIFriend:
                     logger.info(f"[CATALYST-DIRECTOR] Asking: {catalyst_question}")
                     # Acknowledge request + ask Catalyst question
                     ack = "On it 🔍"
-                    return f"{ack}\n\n{catalyst_question}"
+                    response = f"{ack}\n\n{catalyst_question}"
+
+                    # Update state so we know we asked
+                    conv_context.last_question = catalyst_question
+                    conv_context.current_topic = 'catalyst_profile'
+                    
+                    return response
 
         # Adapt tone to user's communication style
         comm_style = profile.get('communication_style', 'neutral')
