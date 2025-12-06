@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Series AI Friend - Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #f5f5f5;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        header {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            color: #666;
+        }
+
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .metric-card {
+            background: white;
+            padding: 25px;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .metric-card h3 {
+            color: #666;
+            font-size: 14px;
+            text-transform: uppercase;
+            margin-bottom: 10px;
+        }
+
+        .metric-value {
+            font-size: 36px;
+            font-weight: bold;
+            color: #333;
+        }
+
+        .metric-value.success {
+            color: #4CAF50;
+        }
+
+        .intro-list {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .intro-item {
+            padding: 15px;
+            border-bottom: 1px solid #eee;
+        }
+
+        .intro-item:last-child {
+            border-bottom: none;
+        }
+
+        .intro-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 5px;
+        }
+
+        .intro-names {
+            font-weight: 600;
+            color: #333;
+        }
+
+        .intro-state {
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .state-complete {
+            background: #E8F5E9;
+            color: #2E7D32;
+        }
+
+        .state-pending {
+            background: #FFF3E0;
+            color: #E65100;
+        }
+
+        .state-rejected {
+            background: #FFEBEE;
+            color: #C62828;
+        }
+
+        .intro-explanation {
+            color: #666;
+            font-size: 14px;
+            margin-top: 5px;
+        }
+
+        .intro-time {
+            color: #999;
+            font-size: 12px;
+            margin-top: 5px;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #999;
+        }
+
+        .refresh-btn {
+            background: #2196F3;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .refresh-btn:hover {
+            background: #1976D2;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Series AI Friend Dashboard</h1>
+            <p class="subtitle">Real-time metrics and introduction tracking</p>
+        </header>
+
+        <div class="metrics-grid">
+            <div class="metric-card">
+                <h3>Total Introductions</h3>
+                <div class="metric-value" id="total-intros">-</div>
+            </div>
+
+            <div class="metric-card">
+                <h3>Completed</h3>
+                <div class="metric-value" id="completed-intros">-</div>
+            </div>
+
+            <div class="metric-card">
+                <h3>Success Rate</h3>
+                <div class="metric-value success" id="success-rate">-</div>
+            </div>
+
+            <div class="metric-card">
+                <h3>Pending</h3>
+                <div class="metric-value" id="pending-intros">-</div>
+            </div>
+        </div>
+
+        <div class="intro-list">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h2>Recent Introductions</h2>
+                <button class="refresh-btn" onclick="loadData()">Refresh</button>
+            </div>
+            <div id="intro-list-content" class="loading">
+                Loading...
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function formatDate(isoString) {
+            if (!isoString) return 'Unknown';
+            const date = new Date(isoString);
+            return date.toLocaleString();
+        }
+
+        function getStateClass(state) {
+            if (state === 'complete') return 'state-complete';
+            if (state.startsWith('pending')) return 'state-pending';
+            if (state === 'rejected') return 'state-rejected';
+            return '';
+        }
+
+        function getStateLabel(state) {
+            if (state === 'complete') return 'Complete';
+            if (state === 'pending_requester') return 'Awaiting Requester';
+            if (state === 'pending_match') return 'Awaiting Match';
+            if (state === 'rejected') return 'Rejected';
+            return state;
+        }
+
+        async function loadMetrics() {
+            try {
+                const response = await fetch('/api/metrics');
+                const data = await response.json();
+
+                document.getElementById('total-intros').textContent = data.total_introductions;
+                document.getElementById('completed-intros').textContent = data.completed;
+                document.getElementById('success-rate').textContent = data.success_rate;
+                document.getElementById('pending-intros').textContent = data.pending;
+            } catch (error) {
+                console.error('Error loading metrics:', error);
+            }
+        }
+
+        async function loadRecentIntros() {
+            try {
+                const response = await fetch('/api/recent_intros');
+                const intros = await response.json();
+
+                const container = document.getElementById('intro-list-content');
+
+                if (intros.length === 0) {
+                    container.innerHTML = '<div class="loading">No introductions yet</div>';
+                    return;
+                }
+
+                container.innerHTML = intros.map(intro => `
+                    <div class="intro-item">
+                        <div class="intro-header">
+                            <div class="intro-names">
+                                ${intro.requester_name} → ${intro.match_name}
+                            </div>
+                            <span class="intro-state ${getStateClass(intro.state)}">
+                                ${getStateLabel(intro.state)}
+                            </span>
+                        </div>
+                        ${intro.explanation ? `
+                            <div class="intro-explanation">${intro.explanation}</div>
+                        ` : ''}
+                        <div class="intro-time">${formatDate(intro.created_at)}</div>
+                    </div>
+                `).join('');
+            } catch (error) {
+                console.error('Error loading intros:', error);
+                document.getElementById('intro-list-content').innerHTML =
+                    '<div class="loading">Error loading introductions</div>';
+            }
+        }
+
+        async function loadData() {
+            await Promise.all([
+                loadMetrics(),
+                loadRecentIntros()
+            ]);
+        }
+
+        // Load on page load
+        loadData();
+
+        // Auto-refresh every 10 seconds
+        setInterval(loadData, 10000);
+    </script>
+</body>
+</html>
