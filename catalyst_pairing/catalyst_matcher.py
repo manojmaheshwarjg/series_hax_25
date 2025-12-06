@@ -176,10 +176,16 @@ class CatalystMatcher:
                 total_requirements += 1
         
         # Check industry match
-        required_industry = requirements.get('industry', '')
+        # FIX: industry can be a list like ['AI', 'SaaS'] or a string
+        required_industry_raw = requirements.get('industry', '')
+        if isinstance(required_industry_raw, list):
+            required_industry = ' '.join(required_industry_raw).lower() if required_industry_raw else ''
+        else:
+            required_industry = required_industry_raw.lower() if required_industry_raw else ''
+            
         if required_industry:
             candidate_interests = [i.lower() if isinstance(i, str) else str(i).lower() for i in self._normalize_list(candidate.get('interests', []))]
-            if required_industry.lower() in ' '.join(candidate_interests):
+            if required_industry in ' '.join(candidate_interests):
                 score += 0.2
                 hits += 1
             total_requirements += 1
